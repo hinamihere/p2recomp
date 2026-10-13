@@ -189,6 +189,7 @@ public:
     // --- time ---
     static u64 now_us();
     u64 vblank_count() const { return vcount_; }
+    u64 next_vblank_us() const { return next_vblank_us_; }
     static constexpr u64 kVblankPeriodUs = 16683u; // 59.94 Hz
 
     // --- objects ---

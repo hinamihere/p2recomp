@@ -4,6 +4,7 @@
 #include "sas.hpp"
 
 #include "kernel.hpp"
+#include "sas_reverb.hpp"
 
 #include <algorithm>
 #include <array>
@@ -237,7 +238,14 @@ struct SasCore {
     int sample_rate{44100};
     std::array<Voice, kVoices> voices;
     std::vector<int> mix;
+    std::vector<int> send;
     std::vector<s16> temp;
+    // Waveform effect (reverb).
+    SasReverb reverb;
+    bool dry_on{true}, wet_on{false};
+    int effect_left{}, effect_right{};
+    std::vector<s16> send_22k;
+    std::vector<s16> wet;
 };
 
 SasCore g_sas;
@@ -282,6 +290,8 @@ void mix_voice(Voice &v) {
         sample = ((sample * env) + (1 << 14)) >> 15;
         g_sas.mix[i * 2] += (sample * v.volume_left) >> 12;
         g_sas.mix[i * 2 + 1] += (sample * v.volume_right) >> 12;
+        g_sas.send[i * 2] += (sample * v.effect_left) >> 12;
+        g_sas.send[i * 2 + 1] += (sample * v.effect_right) >> 12;
     }
     v.hist[0] = temp[temp_pos - 2];
     v.hist[1] = temp[temp_pos - 1];
@@ -293,16 +303,29 @@ void mix_voice(Voice &v) {
 void core_mix(u32 out, u32 in, int lvol, int rvol) {
     const int grain = g_sas.grain;
     g_sas.mix.assign(static_cast<std::size_t>(grain) * 2u, 0);
+    g_sas.send.assign(static_cast<std::size_t>(grain) * 2u, 0);
     if (g_sas.temp.size() < static_cast<std::size_t>(grain) * 4u + 8u) g_sas.temp.resize(static_cast<std::size_t>(grain) * 4u + 8u);
     for (auto &v : g_sas.voices)
         if (v.playing && !v.paused) mix_voice(v);
+    // Reverb: the send bus is processed at 22 kHz and returned zero-stuffed at 44 kHz.
+    const bool wet = g_sas.wet_on;
+    if (wet) {
+        g_sas.send_22k.resize(static_cast<std::size_t>(grain));
+        g_sas.wet.resize(static_cast<std::size_t>(grain) * 2u);
+        for (int i = 0; i < grain / 2; ++i) {
+            g_sas.send_22k[static_cast<std::size_t>(i) * 2] = clamp16(g_sas.send[static_cast<std::size_t>(i) * 4]);
+            g_sas.send_22k[static_cast<std::size_t>(i) * 2 + 1] = clamp16(g_sas.send[static_cast<std::size_t>(i) * 4 + 1]);
+        }
+        g_sas.reverb.process(g_sas.wet.data(), g_sas.send_22k.data(), grain / 2, g_sas.effect_left << 3, g_sas.effect_right << 3);
+    }
     auto &m = mem();
     if (g_sas.output_mode == 0) {
         s16 *o = reinterpret_cast<s16 *>(m.raw_pointer(out, static_cast<u32>(grain) * 4u));
         const s16 *ip = in != 0u ? reinterpret_cast<const s16 *>(m.raw_pointer(in, static_cast<u32>(grain) * 4u)) : nullptr;
         if (o == nullptr) return;
         for (int i = 0; i < grain * 2; ++i) {
-            int s = g_sas.mix[static_cast<std::size_t>(i)];
+            int s = g_sas.dry_on ? g_sas.mix[static_cast<std::size_t>(i)] : 0;
+            if (wet) s += g_sas.wet[static_cast<std::size_t>(i)];
             if (ip != nullptr) s += (ip[i] * ((i & 1) ? rvol : lvol)) >> 12;
             o[i] = clamp16(s);
         }
@@ -482,7 +505,33 @@ void SasSetGrain(AllegrexContext &c) { g_sas.grain = static_cast<int>(arg(c, 1))
 void SasGetGrain(AllegrexContext &c) { ret(c, static_cast<u32>(g_sas.grain)); }
 void SasSetOutputmode(AllegrexContext &c) { g_sas.output_mode = static_cast<int>(arg(c, 1)); ret(c, 0u); }
 void SasGetOutputmode(AllegrexContext &c) { ret(c, static_cast<u32>(g_sas.output_mode)); }
-void SasReverbIgnored(AllegrexContext &c) { ret(c, 0u); }
+void SasRevType(AllegrexContext &c) {
+    const int type = static_cast<int>(arg(c, 1));
+    if (type < -1 || type > 8) { ret(c, 0x80420020u); return; }
+    if (type != g_sas.reverb.preset()) {
+        LOG_I("sas", "reverb type %d", type);
+        g_sas.reverb.set_preset(type);
+    }
+    ret(c, 0u);
+}
+void SasRevParam(AllegrexContext &c) {
+    const int delay = static_cast<int>(arg(c, 1)), feedback = static_cast<int>(arg(c, 2));
+    if (delay < 0 || delay >= 128 || feedback < 0 || feedback >= 128) { ret(c, 0x80420021u); return; }
+    g_sas.reverb.set_params(delay, feedback);
+    ret(c, 0u);
+}
+void SasRevEVOL(AllegrexContext &c) {
+    if (arg(c, 1) > 0x1000u || arg(c, 2) > 0x1000u) { ret(c, 0x80420023u); return; }
+    g_sas.effect_left = static_cast<int>(arg(c, 1));
+    g_sas.effect_right = static_cast<int>(arg(c, 2));
+    ret(c, 0u);
+}
+void SasRevVON(AllegrexContext &c) {
+    g_sas.dry_on = arg(c, 1) != 0u;
+    g_sas.wet_on = arg(c, 2) != 0u;
+    LOG_D("sas", "reverb dry=%d wet=%d", g_sas.dry_on ? 1 : 0, g_sas.wet_on ? 1 : 0);
+    ret(c, 0u);
+}
 
 } // namespace
 
@@ -511,10 +560,10 @@ void register_sas_imports() {
     hle(S, "__sceSasGetGrain", SasGetGrain);
     hle(S, "__sceSasSetOutputmode", SasSetOutputmode);
     hle(S, "__sceSasGetOutputmode", SasGetOutputmode);
-    hle(S, "__sceSasRevType", SasReverbIgnored);
-    hle(S, "__sceSasRevParam", SasReverbIgnored);
-    hle(S, "__sceSasRevEVOL", SasReverbIgnored);
-    hle(S, "__sceSasRevVON", SasReverbIgnored);
+    hle(S, "__sceSasRevType", SasRevType);
+    hle(S, "__sceSasRevParam", SasRevParam);
+    hle(S, "__sceSasRevEVOL", SasRevEVOL);
+    hle(S, "__sceSasRevVON", SasRevVON);
 }
 
 } // namespace p2

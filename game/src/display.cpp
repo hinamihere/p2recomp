@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 namespace p2 {
@@ -197,7 +199,25 @@ void DisplayWaitVblankStartCB(AllegrexContext &c) { wait_vblanks(c, 1u, true); }
 void DisplayWaitVblankCB(AllegrexContext &c) { wait_vblanks(c, 1u, true); }
 void DisplayWaitVblankStartMultiCB(AllegrexContext &c) { wait_vblanks(c, arg(c, 0), true); }
 void DisplayIsVblank(AllegrexContext &c) { ret(c, 0u); }
-void DisplayGetVcount(AllegrexContext &c) { ret(c, static_cast<u32>(K.vblank_count())); }
+// The game busy-waits on the vblank counter as a frame limiter. Polling the
+// same value repeatedly can only end at the next vblank, so sleep the host until
+// then instead of spinning (the guest observes the same sequence of values).
+void DisplayGetVcount(AllegrexContext &c) {
+    static u64 last = ~0ull;
+    static u32 repeats = 0;
+    const u64 now_count = K.vblank_count();
+    if (now_count == last) {
+        if (++repeats >= 256u) {
+            const u64 now = Kernel::now_us(), next = K.next_vblank_us();
+            if (next > now + 300u) std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
+            repeats = 0;
+        }
+    } else {
+        last = now_count;
+        repeats = 0;
+    }
+    ret(c, static_cast<u32>(now_count));
+}
 void DisplayGetFramePerSec(AllegrexContext &c) { retf(c, 59.9400375f); ret(c, 0u); }
 
 } // namespace
