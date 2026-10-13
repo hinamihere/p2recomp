@@ -267,6 +267,7 @@ public:
 
     // Performance counters, reported every 10 s.
     u64 perf_gpu_us{};
+    u64 perf_present_us{};
     u64 perf_flips{};
 
     // Set while an HLE import executes: saved contexts resume at $ra.

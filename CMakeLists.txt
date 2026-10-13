@@ -39,7 +39,7 @@ add_executable(p2 ${P2_SOURCES})
 target_include_directories(p2 PRIVATE "${SDL2_ROOT}/include" "${FFMPEG_ROOT}/include")
 target_link_directories(p2 PRIVATE "${SDL2_ROOT}/lib" "${FFMPEG_ROOT}/lib")
 target_link_libraries(p2 PRIVATE p2_generated psprecomp_core at3_standalone SDL2 avcodec avutil)
-target_compile_options(p2 PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_compile_options(p2 PRIVATE -Wall -Wextra -Wno-unused-parameter -g)
 target_link_options(p2 PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 file(GLOB FFMPEG_DLLS "${FFMPEG_ROOT}/bin/avcodec-*.dll" "${FFMPEG_ROOT}/bin/avutil-*.dll" "${FFMPEG_ROOT}/bin/swresample-*.dll")
 add_custom_command(TARGET p2 POST_BUILD

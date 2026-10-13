@@ -1,5 +1,7 @@
 #include "kernel.hpp"
 
+#include "gpu_state.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -662,12 +664,16 @@ void Kernel::report_performance() {
     const u64 elapsed = now - perf_window_start_;
     if (elapsed < 10'000'000u) return;
     const double secs = static_cast<double>(elapsed) / 1e6;
-    LOG_I("perf", "%.1f game fps, idle %.0f%%, gpu %.0f%% (vblank %llu)", static_cast<double>(perf_flips) / secs,
+    const double frags = static_cast<double>(gpu::take_fragment_count());
+    LOG_I("perf", "%.1f game fps, %.0fk frags/s, %.1f ns/frag, present %.0f%%, idle %.0f%%, gpu %.0f%% (vblank %llu)", static_cast<double>(perf_flips) / secs,
+          frags / secs / 1000.0, frags > 0 ? static_cast<double>(perf_gpu_us) * 1000.0 / frags : 0.0,
+          100.0 * static_cast<double>(perf_present_us) / static_cast<double>(elapsed),
           100.0 * static_cast<double>(idle_us_) / static_cast<double>(elapsed),
           100.0 * static_cast<double>(perf_gpu_us) / static_cast<double>(elapsed), static_cast<unsigned long long>(vcount_));
     perf_window_start_ = now;
     idle_us_ = 0u;
     perf_gpu_us = 0u;
+    perf_present_us = 0u;
     perf_flips = 0u;
 }
 

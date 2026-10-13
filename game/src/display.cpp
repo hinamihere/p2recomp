@@ -91,7 +91,9 @@ void present_frame() {
             }
         }
     }
+    const u64 present_start = Kernel::now_us();
     host::present(g_frame.data(), 480, 272);
+    K.perf_present_us += Kernel::now_us() - present_start;
     if (g_dump_every != 0u && (g_frame_counter++ % g_dump_every) == 0u) dump_bmp(g_frame, g_frame_counter - 1u);
     ++g_frames_presented;
     const u64 now = Kernel::now_us();

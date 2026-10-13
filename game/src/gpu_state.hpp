@@ -63,6 +63,10 @@ struct State {
     u32 vertex_addr{};
     u32 index_addr{};
     u8 clut[1024]{};     // loaded palette (up to 256 x 32-bit)
+    // CLUT index (0..255) -> RGBA8888 after CLUTFORMAT shift/mask/start, rebuilt lazily.
+    u32 palette[256]{};
+    u32 palette_format{0xFFFFFFFFu};
+    bool palette_dirty{true};
 
     u32 relative(u32 data) const { return (((base & 0x000F0000u) << 8) | data) + offset_addr; }
 
@@ -86,5 +90,7 @@ void load_clut(State &s);
 void block_transfer(State &s, u32 data);
 // Called when the frame buffer configuration may have changed or a list ends.
 void flush(State &s);
+// Fragments shaded since the last call (performance statistics).
+u64 take_fragment_count();
 
 } // namespace p2::gpu

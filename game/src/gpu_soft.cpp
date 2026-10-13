@@ -395,7 +395,22 @@ struct TexInfo {
     bool swizzled{};
     const u8 *base{};
     u32 span{};
+    const u32 *palette{}; // decoded CLUT for 4/8-bit formats
+    bool clamp_u{}, clamp_v{};
 };
+
+inline Rgba unpack_rgba(u32 c) { return {static_cast<u8>(c), static_cast<u8>(c >> 8), static_cast<u8>(c >> 16), static_cast<u8>(c >> 24)}; }
+
+void ensure_palette(State &s) {
+    const u32 fmt = s.reg[CLUTFORMAT];
+    if (!s.palette_dirty && s.palette_format == fmt) return;
+    for (u32 i = 0; i < 256u; ++i) {
+        const Rgba c = clut_lookup(s, i);
+        s.palette[i] = c.r | (c.g << 8) | (c.b << 16) | (static_cast<u32>(c.a) << 24);
+    }
+    s.palette_format = fmt;
+    s.palette_dirty = false;
+}
 
 // Byte address of texel (x,y) for a format with `bits` per texel.
 inline u32 texel_offset(const TexInfo &t, u32 x, u32 y, u32 bits) {
@@ -468,12 +483,12 @@ Rgba fetch_texel(const State &s, const TexInfo &t, u32 x, u32 y) {
     case 4: {
         const u32 o = texel_offset(t, x, y, 4);
         if (o >= t.span) return {0, 0, 0, 0};
-        return clut_lookup(s, (t.base[o] >> ((x & 1u) * 4u)) & 15u);
+        return unpack_rgba(t.palette[(t.base[o] >> ((x & 1u) * 4u)) & 15u]);
     }
     case 5: {
         const u32 o = texel_offset(t, x, y, 8);
         if (o >= t.span) return {0, 0, 0, 0};
-        return clut_lookup(s, t.base[o]);
+        return unpack_rgba(t.palette[t.base[o]]);
     }
     case 6: {
         const u32 o = texel_offset(t, x, y, 16);
@@ -489,8 +504,12 @@ Rgba fetch_texel(const State &s, const TexInfo &t, u32 x, u32 y) {
     }
 }
 
-TexInfo texture_info(const State &s) {
+TexInfo texture_info(State &s) {
     TexInfo t;
+    ensure_palette(s);
+    t.palette = s.palette;
+    t.clamp_u = (s.reg[TEXWRAP] & 1u) != 0u;
+    t.clamp_v = (s.reg[TEXWRAP] & 0x100u) != 0u;
     t.addr = s.texaddr(0);
     t.bufw = std::max<u32>(s.texbufwidth(0), 1u);
     t.w = s.texwidth(0);
@@ -511,22 +530,27 @@ TexInfo texture_info(const State &s) {
     return t;
 }
 
+inline int fast_floor(float f) {
+    const int i = static_cast<int>(f);
+    return f < static_cast<float>(i) ? i - 1 : i;
+}
+
 Rgba sample(const State &s, const TexInfo &t, float u, float v, bool through, bool linear) {
     // Through mode: texel coordinates. Otherwise normalized.
     float fu = through ? u : u * static_cast<float>(t.w);
     float fv = through ? v : v * static_cast<float>(t.h);
-    const bool clamp_u = (s.reg[TEXWRAP] & 1u) != 0u, clamp_v = (s.reg[TEXWRAP] & 0x100u) != 0u;
+    const bool clamp_u = t.clamp_u, clamp_v = t.clamp_v;
     auto wrap = [](int c, u32 size, bool clampit) {
         if (clampit) return static_cast<u32>(std::clamp(c, 0, static_cast<int>(size) - 1));
         return static_cast<u32>(c) & (size - 1u);
     };
     if (!linear) {
-        const int x = static_cast<int>(std::floor(fu)), y = static_cast<int>(std::floor(fv));
+        const int x = fast_floor(fu), y = fast_floor(fv);
         return fetch_texel(s, t, wrap(x, t.w, clamp_u), wrap(y, t.h, clamp_v));
     }
     fu -= 0.5f;
     fv -= 0.5f;
-    const int x0 = static_cast<int>(std::floor(fu)), y0 = static_cast<int>(std::floor(fv));
+    const int x0 = fast_floor(fu), y0 = fast_floor(fv);
     const float fx = fu - x0, fy = fv - y0;
     const Rgba a = fetch_texel(s, t, wrap(x0, t.w, clamp_u), wrap(y0, t.h, clamp_v));
     const Rgba b = fetch_texel(s, t, wrap(x0 + 1, t.w, clamp_u), wrap(y0, t.h, clamp_v));
@@ -582,7 +606,7 @@ bool compare(u32 func, u32 a, u32 b) {
     }
 }
 
-void setup_pipeline(Pipeline &p, const State &s, bool through) {
+void setup_pipeline(Pipeline &p, State &s, bool through) {
     p.s = &s;
     p.fb_fmt = s.framebuf_format();
     p.fb_stride = std::max<u32>(s.framebuf_stride(), 1u);
@@ -696,7 +720,10 @@ u32 blend_factor_value(u32 f, bool src, const int s[4], const int d[4], u32 fix,
 }
 
 // Shades and writes one fragment. Colors are 0..255.
+u64 g_fragments = 0;
+
 inline void fragment(const Pipeline &p, int x, int y, float z, int r, int g, int b, int a, float u, float v, float fogf) {
+    ++g_fragments;
     const std::size_t zi = static_cast<std::size_t>(y) * p.zb_stride + static_cast<std::size_t>(x);
     const u16 zval = static_cast<u16>(std::clamp(z, 0.f, 65535.f));
     if (p.clear) {
@@ -859,30 +886,76 @@ void raster_triangle(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b, 
         const bool top_left = area > 0 ? (dy < 0 || (dy == 0 && dx > 0)) : (dy > 0 || (dy == 0 && dx < 0));
         return top_left ? 0.f : -1e-6f;
     };
-    const float bias0 = edge_bias(b, c), bias1 = edge_bias(c, a), bias2 = edge_bias(a, b);
+    const float bias[3] = {edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)};
+    // Barycentric weights are linear in x and y: w_i(x, y) = e_i + dx_i * x + dy_i * y.
+    const float dx0 = -(c.y - b.y) * inv_area, dy0 = (c.x - b.x) * inv_area;
+    const float dx1 = -(a.y - c.y) * inv_area, dy1 = (a.x - c.x) * inv_area;
+    const float e0 = ((c.x - b.x) * (-b.y) - (c.y - b.y) * (-b.x)) * inv_area;
+    const float e1 = ((a.x - c.x) * (-c.y) - (a.y - c.y) * (-c.x)) * inv_area;
+
+    // Attribute planes: value = A_a * w0 + A_b * w1 + A_c * w2. Perspective-correct
+    // attributes are pre-multiplied by 1/w and divided back per pixel.
+    constexpr int kAttrs = 9; // z, 1/w, u/w, v/w, r, g, b, a (x 1/w), fog
+    float va_[kAttrs], vb_[kAttrs], vc_[kAttrs];
+    auto load = [&](const ScreenVertex &v, float *out) {
+        out[0] = v.z;
+        out[1] = v.invw;
+        out[2] = v.u;
+        out[3] = v.v;
+        for (int i = 0; i < 4; ++i) out[4 + i] = flat ? flat_color[i] * v.invw : v.color[i] * v.invw;
+        out[8] = v.fog;
+    };
+    load(a, va_);
+    load(b, vb_);
+    load(c, vc_);
+    // With w2 = 1 - w0 - w1: A = A_c + (A_a - A_c) w0 + (A_b - A_c) w1.
+    float ddx[kAttrs], ddy[kAttrs], base[kAttrs];
+    for (int i = 0; i < kAttrs; ++i) {
+        const float ka = va_[i] - vc_[i], kb = vb_[i] - vc_[i];
+        ddx[i] = ka * dx0 + kb * dx1;
+        ddy[i] = ka * dy0 + kb * dy1;
+        base[i] = vc_[i] + ka * e0 + kb * e1;
+    }
+    const bool perspective = !p.through;
+
     for (int y = miny; y <= maxy; ++y) {
         const float py = y + 0.5f;
-        for (int x = minx; x <= maxx; ++x) {
-            const float px = x + 0.5f;
-            float w0 = ((c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x)) * inv_area;
-            float w1 = ((a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x)) * inv_area;
-            float w2 = 1.f - w0 - w1;
-            if (w0 < bias0 || w1 < bias1 || w2 < bias2) continue;
-            const float z = a.z * w0 + b.z * w1 + c.z * w2;
-            const float invw = a.invw * w0 + b.invw * w1 + c.invw * w2;
-            const float wcorr = invw != 0.f ? 1.f / invw : 1.f;
-            const float u = (a.u * w0 + b.u * w1 + c.u * w2) * wcorr;
-            const float v = (a.v * w0 + b.v * w1 + c.v * w2) * wcorr;
-            float col[4];
-            if (flat) for (int i = 0; i < 4; ++i) col[i] = flat_color[i];
-            else {
-                // Colors are interpolated perspective-correctly.
-                for (int i = 0; i < 4; ++i)
-                    col[i] = (a.color[i] * a.invw * w0 + b.color[i] * b.invw * w1 + c.color[i] * c.invw * w2) * wcorr;
+        // Solve each edge for the covered x range on this row (pixel centres at x + 0.5).
+        float w0r = e0 + dy0 * py, w1r = e1 + dy1 * py;
+        float w2r = 1.f - w0r - w1r;
+        const float dx2 = -dx0 - dx1;
+        float lo = static_cast<float>(minx), hi = static_cast<float>(maxx);
+        bool empty = false;
+        auto clip = [&](float w_at_0, float d, float b_) {
+            // w(x) = w_at_0 + d * (x + 0.5) >= b_
+            if (d > 0.f) lo = std::max(lo, (b_ - w_at_0) / d - 0.5f);
+            else if (d < 0.f) hi = std::min(hi, (b_ - w_at_0) / d - 0.5f);
+            else if (w_at_0 < b_) empty = true;
+        };
+        clip(w0r, dx0, bias[0]);
+        clip(w1r, dx1, bias[1]);
+        clip(w2r, dx2, bias[2]);
+        if (empty) continue;
+        int xs = std::max(minx, static_cast<int>(std::ceil(lo - 1e-4f)));
+        int xe = std::min(maxx, static_cast<int>(std::floor(hi + 1e-4f)));
+        if (xs > xe) continue;
+        float attr[kAttrs];
+        const float sx = xs + 0.5f;
+        for (int i = 0; i < kAttrs; ++i) attr[i] = base[i] + ddx[i] * sx + ddy[i] * py;
+        float w0 = w0r + dx0 * sx, w1 = w1r + dx1 * sx;
+        for (int x = xs; x <= xe; ++x) {
+            const float w2 = 1.f - w0 - w1;
+            // Exact edge test at the span borders guards against float error in the solve.
+            if (w0 >= bias[0] && w1 >= bias[1] && w2 >= bias[2]) {
+                const float wcorr = perspective && attr[1] != 0.f ? 1.f / attr[1] : 1.f;
+                const float u = attr[2] * wcorr, v = attr[3] * wcorr;
+                fragment(p, x, y, attr[0], static_cast<int>(clamp01(attr[4] * wcorr) * 255.f + 0.5f),
+                         static_cast<int>(clamp01(attr[5] * wcorr) * 255.f + 0.5f), static_cast<int>(clamp01(attr[6] * wcorr) * 255.f + 0.5f),
+                         static_cast<int>(clamp01(attr[7] * wcorr) * 255.f + 0.5f), u, v, attr[8]);
             }
-            const float fog = (a.fog * w0 + b.fog * w1 + c.fog * w2);
-            fragment(p, x, y, z, static_cast<int>(clamp01(col[0]) * 255.f + 0.5f), static_cast<int>(clamp01(col[1]) * 255.f + 0.5f),
-                     static_cast<int>(clamp01(col[2]) * 255.f + 0.5f), static_cast<int>(clamp01(col[3]) * 255.f + 0.5f), u, v, fog);
+            w0 += dx0;
+            w1 += dx1;
+            for (int i = 0; i < kAttrs; ++i) attr[i] += ddx[i];
         }
     }
 }
@@ -1110,6 +1183,7 @@ void load_clut(State &s) {
     const u32 addr = (s.reg[CLUTADDR] & 0xFFFFF0u) | ((s.reg[CLUTADDRUPPER] << 8) & 0x0F000000u);
     const u32 bytes = std::min<u32>((s.reg[LOADCLUT] & 0x3Fu) * 32u, sizeof(s.clut));
     if (const u8 *src = mem().raw_pointer(addr, bytes)) std::memcpy(s.clut, src, bytes);
+    s.palette_dirty = true;
 }
 
 void block_transfer(State &s, u32 data) {
@@ -1132,5 +1206,11 @@ void block_transfer(State &s, u32 data) {
 }
 
 void flush(State &) {}
+
+u64 take_fragment_count() {
+    const u64 n = g_fragments;
+    g_fragments = 0;
+    return n;
+}
 
 } // namespace p2::gpu
