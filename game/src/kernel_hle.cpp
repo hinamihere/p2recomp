@@ -466,7 +466,6 @@ void register_kernel_imports() {
     hle(T, "sceKernelDelayThreadCB", DelayThreadCB);
     hle(T, "sceKernelChangeThreadPriority", ChangeThreadPriority);
     hle(T, "sceKernelChangeCurrentThreadAttr", ChangeCurrentThreadAttr);
-    hle(T, "sceKernelGetThreadId", GetThreadId);
     hle(T, "sceKernelGetThreadCurrentPriority", GetThreadCurrentPriority);
     hle(T, "sceKernelCreateCallback", CreateCallback);
     hle(T, "sceKernelDeleteCallback", DeleteCallback);

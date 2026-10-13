@@ -42,6 +42,7 @@ struct Options {
     std::filesystem::path ms{"memstick"};
     int scale{2};
     bool headless{};
+    u32 dump_every{};
 };
 
 Options parse_options(int argc, char **argv) {
@@ -55,6 +56,7 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--ms") o.ms = next();
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
+        else if (a == "--dump-frames") o.dump_every = static_cast<u32>(std::atoi(next().c_str()));
         else if (a == "-v") g_log_level = LogLevel::Debug;
         else if (a == "-vv") g_log_level = LogLevel::Trace;
         else if (a == "-q") g_log_level = LogLevel::Warn;
@@ -102,6 +104,7 @@ int run(int argc, char **argv) {
     register_kernel_imports();
     register_io_imports();
     register_display_imports();
+    display_set_frame_dump(opt.dump_every);
     register_ge_imports();
     register_audio_imports();
     register_stub_imports();

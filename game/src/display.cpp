@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <vector>
 
 namespace p2 {
@@ -25,6 +26,31 @@ struct DisplayState {
 std::vector<u32> g_frame(480 * 272);
 u64 g_frames_presented{};
 u64 g_fps_window_start{};
+
+// Optional frame dumping (--dump-frames N): every Nth frame as BMP in build/frames/.
+u32 g_dump_every{};
+u64 g_frame_counter{};
+
+void dump_bmp(const std::vector<u32> &pixels, u64 index) {
+    char name[96];
+    std::snprintf(name, sizeof(name), "build/frames/frame_%06llu.bmp", static_cast<unsigned long long>(index));
+    std::FILE *f = std::fopen(name, "wb");
+    if (f == nullptr) return;
+    const u32 w = 480, h = 272, image = w * h * 4, file = 54 + image;
+    u8 header[54]{'B', 'M'};
+    auto put32 = [&](int at, u32 v) { for (int i = 0; i < 4; ++i) header[at + i] = static_cast<u8>(v >> (8 * i)); };
+    put32(2, file); put32(10, 54); put32(14, 40); put32(18, w); put32(22, h);
+    header[26] = 1; header[28] = 32; put32(34, image);
+    std::fwrite(header, 1, sizeof(header), f);
+    for (int y = static_cast<int>(h) - 1; y >= 0; --y) {
+        for (u32 x = 0; x < w; ++x) {
+            const u32 p = pixels[static_cast<std::size_t>(y) * w + x];
+            const u8 bgra[4] = {static_cast<u8>(p >> 16), static_cast<u8>(p >> 8), static_cast<u8>(p), 255};
+            std::fwrite(bgra, 1, 4, f);
+        }
+    }
+    std::fclose(f);
+}
 
 u32 rgb565(u16 p) {
     const u32 r = (p & 0x1Fu) << 3, g = ((p >> 5) & 0x3Fu) << 2, b = ((p >> 11) & 0x1Fu) << 3;
@@ -66,6 +92,7 @@ void present_frame() {
         }
     }
     host::present(g_frame.data(), 480, 272);
+    if (g_dump_every != 0u && (g_frame_counter++ % g_dump_every) == 0u) dump_bmp(g_frame, g_frame_counter - 1u);
     ++g_frames_presented;
     const u64 now = Kernel::now_us();
     if (now - g_fps_window_start >= 1'000'000u) {
@@ -158,6 +185,11 @@ void DisplayGetVcount(AllegrexContext &c) { ret(c, static_cast<u32>(K.vblank_cou
 void DisplayGetFramePerSec(AllegrexContext &c) { retf(c, 59.9400375f); ret(c, 0u); }
 
 } // namespace
+
+void display_set_frame_dump(u32 every) {
+    g_dump_every = every;
+    if (every != 0u) std::filesystem::create_directories("build/frames");
+}
 
 void register_display_imports() {
     K.vblank_listeners.push_back(on_vblank);
