@@ -29,6 +29,15 @@ struct DisplayState {
 std::vector<u32> g_frame(480 * 272);
 u64 g_frames_presented{};
 u64 g_fps_window_start{};
+u64 g_last_fps{};
+std::string g_notice;
+u64 g_notice_until{};
+
+void update_title() {
+    std::string text = "- " + std::to_string(g_last_fps) + " fps";
+    if (!g_notice.empty() && Kernel::now_us() < g_notice_until) text += " - " + g_notice;
+    host::set_title_suffix(text);
+}
 
 // Optional frame dumping (--dump-frames N): every Nth frame as BMP in build/frames/.
 u32 g_dump_every{};
@@ -101,9 +110,8 @@ void present_frame() {
     ++g_frames_presented;
     const u64 now = Kernel::now_us();
     if (now - g_fps_window_start >= 1'000'000u) {
-        char text[64];
-        std::snprintf(text, sizeof(text), "- %llu fps", static_cast<unsigned long long>(g_frames_presented));
-        host::set_title_suffix(text);
+        g_last_fps = g_frames_presented;
+        update_title();
         g_frames_presented = 0u;
         g_fps_window_start = now;
     }
@@ -305,6 +313,12 @@ void display_load(StateReader &r) {
     r.pod(g_ctrl_last_read);
     r.pod(g_sampling_cycle);
     r.pod(g_sampling_mode);
+}
+
+void display_notify(const std::string &text) {
+    g_notice = text;
+    g_notice_until = Kernel::now_us() + 3'000'000u;
+    update_title();
 }
 
 } // namespace p2

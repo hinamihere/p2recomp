@@ -1,5 +1,6 @@
 #include "savestate.hpp"
 
+#include "display.hpp"
 #include "kernel.hpp"
 
 #include <fstream>
@@ -64,6 +65,7 @@ bool do_save(int slot) {
     std::filesystem::create_directories(g_dir, ec);
     std::ofstream out(slot_path(slot), std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char *>(w.buf.data()), static_cast<std::streamsize>(w.buf.size()));
+    display_notify(out ? "state " + std::to_string(slot) + " saved" : "saving state " + std::to_string(slot) + " failed");
     LOG_I("state", "saved slot %d (%u KiB) at vblank %llu", slot, static_cast<unsigned>(w.buf.size() / 1024u),
           static_cast<unsigned long long>(g_kernel.vblank_count()));
     return static_cast<bool>(out);
@@ -73,13 +75,23 @@ bool do_load(int slot) {
     std::ifstream in(slot_path(slot), std::ios::binary);
     if (!in) {
         LOG_W("state", "no savestate in slot %d", slot);
+        display_notify("no state in slot " + std::to_string(slot));
         return false;
     }
     std::vector<u8> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     StateReader r(std::move(data));
+    // Header problems are refused before anything is touched.
+    const char *refused = nullptr;
+    if (r.buf.size() < 20u) refused = "not a savestate";
+    else if (r.pod<u32>() != kMagic) refused = "not a savestate";
+    else if (r.pod<u32>() != kVersion) refused = "made by another version";
+    else if (r.pod<u32>() != g_kernel.module_gp()) refused = "made for a different executable";
+    if (refused != nullptr) {
+        LOG_W("state", "slot %d: %s", slot, refused);
+        display_notify("state " + std::to_string(slot) + ": " + refused);
+        return false;
+    }
     try {
-        if (r.pod<u32>() != kMagic || r.pod<u32>() != kVersion) throw std::runtime_error("not a compatible savestate");
-        if (r.pod<u32>() != g_kernel.module_gp()) throw std::runtime_error("savestate is for a different executable");
         r.pod<u64>();
         load_memory(r);
         kernel_load(r);
@@ -100,6 +112,7 @@ bool do_load(int slot) {
         return false;
     }
     LOG_I("state", "loaded slot %d", slot);
+    display_notify("state " + std::to_string(slot) + " loaded");
     return true;
 }
 
@@ -146,6 +159,7 @@ bool savestate_service() {
         if (g_blocked_since == 0u) g_blocked_since = now;
         if (now - g_blocked_since > 120u) {
             LOG_W("state", "cannot %s now: %s", g_pending_load >= 0 ? "load" : "save", b.c_str());
+            display_notify(std::string("cannot ") + (g_pending_load >= 0 ? "load" : "save") + " a state right now");
             g_pending_save = g_pending_load = -1;
             g_blocked_since = 0u;
         }
