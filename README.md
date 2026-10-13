@@ -12,12 +12,13 @@ Playable from boot into the story:
 
 - intro logos, opening anime movie (H.264 + ATRAC3+), title screen
 - New Game, name entry, story scenes with dialogue and portraits
-- field exploration (3D map, camera), main menu, map screen
+- field exploration (3D map, camera), school interiors, NPC conversations, main menu, automap
 - background music (ATRAC3+ streaming with loops), sound effects (SAS with reverb), movie audio
 - saves stored on the host (`memstick/PSP/SAVEDATA/...`)
-- runs at the game's native 30 fps
+- runs at the game's native 30 fps; fast-forward (Tab) and savestates (F5/F8)
 
-Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+Not verified yet: battles (the first ones come after the opening story chain),
+saving at save points. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a straightforward software rasterizer (correct but CPU heavy).
 
 ## Why a recomp and not a matching decomp
@@ -75,14 +76,19 @@ The ISO is found automatically in the working directory or one level below (`--i
 | `--scale N` | window scale (default 2) |
 | `--smooth` | bilinear upscaling instead of sharp pixels |
 | `-v` / `-vv` / `-q` | more / trace / less logging |
-| `--headless` | no window or audio |
+| `--headless` | no window or audio (audio queues drain in game time) |
 | `--dump-frames N` | write every Nth frame to `build/frames/` |
 | `--dump-audio <file>` | record the final audio mix (raw s16 stereo 44.1 kHz) |
 | `--input "<vblank>=BUTTON[+BUTTON][:frames],..."` | scripted input for unattended tests |
 | `--exit-after <vblank>` | stop cleanly after N vblanks |
 | `--turbo-until <vblank>` | fast-forward until that vblank |
 | `--load-state N` | start from savestate slot N |
+| `--load-state-at <vblank>[:slot]` | load a state at that vblank, like pressing F8 (tests) |
 | `--save-state-at <vblank>[:slot]` | write a savestate at that vblank (scripted tests, `tools/drive.py`) |
+
+Scripted play from savestates: `tools/drive.py` (load a slot, play input, save another slot,
+last frame and a contact sheet in `build/drive/`), `tools/explore.py` (random walk until the
+location banner changes) and `tools/talkhunt.py` (random walk until a conversation opens).
 
 Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and dump textures),
 `P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`.

@@ -49,7 +49,8 @@ tests, blending, logic ops and write masks. Not implemented: Bezier/spline patch
 ## Audio
 
 * `audio.cpp`: eight `sceAudio` channels mixed on SDL's audio thread; blocking output suspends the
-  caller until its channel has drained to one buffer.
+  caller until its channel has drained to one buffer. Without an audio device, or while
+  fast-forwarding, the queues drain at 44.1 kHz of game time instead.
 * `sas.cpp`, `sas_reverb.cpp`: the SAS voice mixer (VAG ADPCM, PCM, noise; pitch; ADSR envelopes)
   and its reverb.
 * `atrac.cpp`: ATRAC3/ATRAC3+ streaming for BGM. Looping streams are fed to the game as a virtual
@@ -67,7 +68,24 @@ decoder and converted to RGBA in `sceMpegAvcCsc`; ATRAC3+ audio uses the same de
 sectors from the ISO. `ms0:` maps to `memstick/`. Savedata is stored unencrypted in
 `memstick/PSP/SAVEDATA/<game><save>/` with a generated `PARAM.SFO`.
 
+## Savestates (`savestate.cpp`)
+
+A state is guest RAM (32 MiB) and VRAM verbatim plus a section per host module, each written by
+that module next to its own state: kernel objects and thread contexts, GE lists and registers,
+display/controller, audio channel setup (queued samples are dropped), SAS voices and reverb,
+ATRAC streams, MPEG contexts, open files (reopened by path), utility dialogs. FFmpeg and ATRAC
+decoders are recreated; ATRAC loses one frame of overlap history, a movie a few pictures until
+the next keyframe.
+
+Requests (F5/F8, `--load-state`, ...) are serviced only where no native frame of guest code is
+half way through something: the post-dispatch hook, the starvation boundary, the kernel idle loop
+and right after an import returns on the same thread (that thread then resumes at `ra`). A state
+is not taken while an interrupt handler or a callback runs (those hold host closures); the request
+waits up to two seconds for such a point. Loading switches the runtime thread identity, which
+unwinds any nested native frames exactly like a thread switch.
+
 ## Debugging aids
 
 `--input`, `--dump-frames`, `--dump-audio`, `--exit-after`, `P2_GE_TRACE`, `P2_THREAD_DUMP`,
-`PSPRECOMP_HLE_HISTOGRAM` and `tools/disasm.py` (see README).
+`PSPRECOMP_HLE_HISTOGRAM`, `tools/disasm.py`, and the savestate-driven `tools/drive.py`,
+`tools/explore.py`, `tools/talkhunt.py` (see README).
