@@ -154,13 +154,13 @@ void set_title_suffix(const std::string &text) {
 
 bool start_audio(AudioPull pull, int sample_rate) {
     g_pull = pull;
-    SDL_AudioSpec want{}, have{};
+    SDL_AudioSpec want{};
     want.freq = sample_rate;
     want.format = AUDIO_S16SYS;
     want.channels = 2;
     want.samples = 1024;
     want.callback = audio_callback;
-    if (SDL_OpenAudio(&want, &have) != 0) {
+    if (SDL_OpenAudio(&want, nullptr) != 0) { // nullptr: SDL converts from our s16 stereo
         LOG_E("host", "SDL_OpenAudio failed: %s", SDL_GetError());
         return false;
     }

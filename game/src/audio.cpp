@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <deque>
+#include <cstdio>
 #include <mutex>
+#include <string>
 
 namespace p2 {
 namespace {
@@ -31,6 +33,7 @@ struct Channel {
 
 std::mutex g_mutex;
 Channel g_channels[kChannels];
+std::FILE *g_dump{}; // raw s16 stereo 44.1 kHz capture of the final mix
 
 void mix(s16 *out, int frames) {
     std::lock_guard lock(g_mutex);
@@ -44,6 +47,7 @@ void mix(s16 *out, int frames) {
         out[f * 2] = static_cast<s16>(std::clamp(l, -32768, 32767));
         out[f * 2 + 1] = static_cast<s16>(std::clamp(r, -32768, 32767));
     }
+    if (g_dump != nullptr) std::fwrite(out, 4, static_cast<std::size_t>(frames), g_dump);
 }
 
 u32 queued_frames(const Channel &ch) { return static_cast<u32>(ch.queue.size() / 2u); }
@@ -169,6 +173,10 @@ void AudioGetChannelRestLength(AllegrexContext &c) {
 }
 
 } // namespace
+
+void audio_dump_to(const std::string &path) {
+    g_dump = std::fopen(path.c_str(), "wb");
+}
 
 void audio_start() {
     host::start_audio(mix, 44100);

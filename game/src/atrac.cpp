@@ -149,10 +149,32 @@ void seek_stream(Atrac &a, int sample) {
     if (a.ctx3 != nullptr) atrac3_flush_buffers(a.ctx3);
 }
 
+// Looping streams are fed as a virtual sequence: frames up to the loop-end frame,
+// then again from one frame before the loop start (a decoder warm-up frame), so
+// the ring never runs dry at the loop point.
+bool stream_loops(const Atrac &a) { return !a.all_loaded && a.loop_num != 0 && a.loop_start >= 0; }
+int loop_end_frame(const Atrac &a) { return (a.loop_end + a.offset_full()) / a.samples_per_frame; }
+int loop_restart_frame(const Atrac &a) { return std::max((a.loop_start + a.offset_full()) / a.samples_per_frame - 1, 0); }
+
+u32 segment_end(const Atrac &a) {
+    const u32 data_end = a.data_off + a.data_size;
+    if (!stream_loops(a)) return data_end;
+    return std::min(data_end, a.frame_file_offset(loop_end_frame(a) + 1));
+}
+
+int next_frame(const Atrac &a, int frame) {
+    return stream_loops(a) && frame == loop_end_frame(a) ? loop_restart_frame(a) : frame + 1;
+}
+
+// Wraps the file read position back to the loop when the segment is fully requested.
+void wrap_file_write(Atrac &a) {
+    if (stream_loops(a) && a.file_write >= segment_end(a)) a.file_write = a.frame_file_offset(loop_restart_frame(a));
+}
+
 int remaining_frames(const Atrac &a) {
     if (a.all_loaded) return -1;
     const u32 data_end = a.data_off + a.data_size;
-    if (a.file_write >= data_end) return a.loop_num == 0 ? -2 : -3;
+    if (!stream_loops(a) && a.file_write >= data_end) return -2;
     return static_cast<int>(a.avail / static_cast<u32>(a.block_align));
 }
 
@@ -168,18 +190,18 @@ bool fetch_frame(Atrac &a, int frame) {
         std::memcpy(a.frame_buf.data(), p, a.frame_buf.size());
         return true;
     }
-    // Discard frames before the one we need.
-    while (a.ring_frame < frame && a.avail >= static_cast<u32>(a.block_align)) {
+    // Discard frames before the one we need (bounded by what is buffered).
+    while (a.ring_frame != frame && a.avail >= static_cast<u32>(a.block_align)) {
         a.read_pos = (a.read_pos + static_cast<u32>(a.block_align)) % a.buffer_size;
         a.avail -= static_cast<u32>(a.block_align);
-        ++a.ring_frame;
+        a.ring_frame = next_frame(a, a.ring_frame);
     }
     if (a.ring_frame != frame || a.avail < static_cast<u32>(a.block_align)) return false;
     for (int i = 0; i < a.block_align; ++i)
         a.frame_buf[static_cast<std::size_t>(i)] = m.load8(a.buffer + (a.read_pos + static_cast<u32>(i)) % a.buffer_size);
     a.read_pos = (a.read_pos + static_cast<u32>(a.block_align)) % a.buffer_size;
     a.avail -= static_cast<u32>(a.block_align);
-    ++a.ring_frame;
+    a.ring_frame = next_frame(a, a.ring_frame);
     return true;
 }
 
@@ -248,10 +270,11 @@ void AtracGetStreamDataInfo(AllegrexContext &c) {
     if (a == nullptr) { ret(c, ERR_BAD_ATRACID); return; }
     u32 write_ptr = a->buffer, writable = 0u, read_offset = 0u;
     if (!a->all_loaded) {
-        const u32 data_end = a->data_off + a->data_size;
+        wrap_file_write(*a);
+        const u32 end = segment_end(*a);
         const u32 free_bytes = a->buffer_size - a->avail;
         const u32 contiguous = a->buffer_size - a->write_pos;
-        writable = std::min({free_bytes, contiguous, data_end > a->file_write ? data_end - a->file_write : 0u});
+        writable = std::min({free_bytes, contiguous, end > a->file_write ? end - a->file_write : 0u});
         write_ptr = a->buffer + a->write_pos;
         read_offset = a->file_write;
     }
@@ -271,6 +294,7 @@ void AtracAddStreamData(AllegrexContext &c) {
     a->avail += bytes;
     a->write_pos = (a->write_pos + bytes) % a->buffer_size;
     a->file_write += bytes;
+    wrap_file_write(*a);
     ret(c, 0u);
 }
 
@@ -319,13 +343,12 @@ void AtracDecodeData(AllegrexContext &c) {
     u32 finish = 0u;
     if (looping && a->current_sample > a->loop_end) {
         if (a->loop_num > 0) --a->loop_num;
-        if (a->all_loaded) {
-            a->current_sample = a->loop_start;
-            const int lf = (a->loop_start + a->offset_full()) / a->samples_per_frame;
-            a->warmup = lf > 0 ? 1 : 0;
-        } else {
-            seek_stream(*a, a->loop_start);
-        }
+        // The next buffered frame is the warm-up frame before the loop start.
+        a->current_sample = a->loop_start;
+        const int lf = (a->loop_start + a->offset_full()) / a->samples_per_frame;
+        a->warmup = lf > 0 ? 1 : 0;
+        if (a->ctx3p != nullptr) atrac3p_flush_buffers(a->ctx3p);
+        if (a->ctx3 != nullptr) atrac3_flush_buffers(a->ctx3);
     } else if (a->current_sample > a->end_sample) {
         finish = 1u;
     }
@@ -344,6 +367,14 @@ void AtracSetLoopNum(AllegrexContext &c) {
     if (a == nullptr) { ret(c, ERR_BAD_ATRACID); return; }
     if (a->loop_start < 0) { ret(c, ERR_NO_LOOP_INFORMATION); return; }
     a->loop_num = static_cast<int>(arg(c, 1));
+    // Data already buffered past the loop end would break the virtual sequence: drop it.
+    if (stream_loops(*a) && a->file_write > segment_end(*a) && a->ring_frame <= loop_end_frame(*a)) {
+        const u32 excess = std::min(a->file_write - segment_end(*a), a->avail);
+        a->avail -= excess;
+        a->write_pos = (a->write_pos + a->buffer_size - excess % a->buffer_size) % a->buffer_size;
+        a->file_write -= excess;
+        wrap_file_write(*a);
+    }
     ret(c, 0u);
 }
 
