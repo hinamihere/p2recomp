@@ -82,7 +82,7 @@ The ISO is found automatically in the working directory or one level below (`--i
 | `--exit-after <vblank>` | stop cleanly after N vblanks |
 | `--turbo-until <vblank>` | fast-forward until that vblank |
 | `--load-state N` | start from savestate slot N |
-| `--save-state-at <vblank>` | write savestate slot 1 at that vblank (scripted tests) |
+| `--save-state-at <vblank>[:slot]` | write a savestate at that vblank (scripted tests, `tools/drive.py`) |
 
 Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and dump textures),
 `P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`.

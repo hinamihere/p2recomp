@@ -8,7 +8,7 @@ namespace p2 {
 namespace {
 
 constexpr u32 kMagic = 0x53533250u; // "P2SS"
-constexpr u32 kVersion = 1u;
+constexpr u32 kVersion = 2u;
 constexpr u32 kRamBase = 0x08000000u, kRamSize = 32u * 1024u * 1024u;
 constexpr u32 kVramBase = 0x04000000u, kVramSize = 2u * 1024u * 1024u;
 
@@ -46,6 +46,7 @@ bool do_save(int slot) {
     w.pod(kMagic);
     w.pod(kVersion);
     w.pod(g_kernel.module_gp());
+    w.pod(g_kernel.vblank_count()); // informational, read by tools/drive.py
     save_memory(w);
     kernel_save(w);
     ge_save(w);
@@ -77,6 +78,7 @@ bool do_load(int slot) {
     try {
         if (r.pod<u32>() != kMagic || r.pod<u32>() != kVersion) throw std::runtime_error("not a compatible savestate");
         if (r.pod<u32>() != g_kernel.module_gp()) throw std::runtime_error("savestate is for a different executable");
+        r.pod<u64>();
         load_memory(r);
         kernel_load(r);
         ge_load(r);

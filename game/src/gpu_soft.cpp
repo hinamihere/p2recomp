@@ -34,7 +34,11 @@ std::FILE *trace_file() {
         if (f != nullptr && now > last) { std::fclose(f); f = nullptr; first = -1; }
         return nullptr;
     }
-    if (f == nullptr) f = std::fopen("build/ge_trace.txt", "w");
+    if (f == nullptr) {
+        f = std::fopen("build/ge_trace.txt", "w");
+        // Runs usually end with --exit-after, which does not flush stdio.
+        if (f != nullptr) std::setvbuf(f, nullptr, _IONBF, 0);
+    }
     static long last_frame = -1;
     if (f != nullptr && now != last_frame) { std::fprintf(f, "=== vblank %ld\n", now); last_frame = now; }
     return f;
