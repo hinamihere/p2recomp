@@ -96,6 +96,11 @@ public:
 
     void unsupported(std::uint32_t pc, std::uint32_t instruction, const std::string &reason);
     void arithmetic_overflow(std::uint32_t pc, std::uint32_t instruction);
+    // Guest `break` (e.g. compiler divide-by-zero traps). Stops execution unless a
+    // profile installs a handler with set_break_handler().
+    void guest_break(std::uint32_t pc, std::uint32_t code, AllegrexContext &ctx);
+    using BreakHandler = void (*)(Runtime &, AllegrexContext &, std::uint32_t pc, std::uint32_t code);
+    void set_break_handler(BreakHandler handler) noexcept { break_handler_ = handler; }
     void invoke_import(std::string_view library, std::uint32_t nid, AllegrexContext &ctx);
     // Generated import wrappers have a stable numeric slot. Resolve the
     // library/NID hash maps only on the first call, then invoke the bound HLE
@@ -320,6 +325,7 @@ private:
     std::unordered_map<std::string, HleLibrary,
                        TransparentStringHash, std::equal_to<>> hle_;
     std::unordered_map<std::uint32_t, NativeFastPath> native_fast_paths_;
+    BreakHandler break_handler_{};
     std::vector<const HleFunction *> import_bindings_;
     std::filesystem::path game_root_;
     bool stopped_{};

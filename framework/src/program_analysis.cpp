@@ -14,6 +14,24 @@ namespace {
 
 std::vector<ExecutableRange> executable_ranges_for(const Elf32Image &elf, std::uint32_t load_base) {
     std::vector<ExecutableRange> ranges;
+    // Prefer SHF_EXECINSTR sections: PRX executables put .rodata, stub tables and
+    // module info in the same RX segment as .text, and decoding those as code
+    // turns every data pointer into a bogus function seed.
+    constexpr std::uint32_t kShfExecInstr = 0x4u;
+    for (const auto &section : elf.sections()) {
+        if ((section.flags & kShfExecInstr) == 0u || section.size == 0u || section.type != 1u) continue;
+        const std::uint32_t start = elf.section_runtime_address(section, load_base);
+        ranges.push_back({start, start + (section.size & ~3u)});
+    }
+    if (!ranges.empty()) {
+        std::sort(ranges.begin(), ranges.end(), [](const auto &a, const auto &b) { return a.start < b.start; });
+        std::vector<ExecutableRange> merged;
+        for (const auto &range : ranges) {
+            if (!merged.empty() && range.start <= merged.back().end) merged.back().end = std::max(merged.back().end, range.end);
+            else merged.push_back(range);
+        }
+        return merged;
+    }
     for (std::size_t i = 0; i < elf.segments().size(); ++i) {
         const auto &segment = elf.segments()[i];
         if (segment.type != 1u || (segment.flags & 1u) == 0u || segment.file_size == 0u) continue;

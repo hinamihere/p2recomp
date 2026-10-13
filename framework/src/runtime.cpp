@@ -1094,6 +1094,12 @@ void Runtime::stop(std::string reason) { stopped_ = true; stop_reason_ = std::mo
 bool Runtime::stopped() const noexcept { return stopped_; }
 const std::string &Runtime::stop_reason() const noexcept { return stop_reason_; }
 
+void Runtime::guest_break(std::uint32_t pc, std::uint32_t code, AllegrexContext &ctx) {
+    ctx.pc = pc;
+    if (break_handler_ != nullptr) { break_handler_(*this, ctx, pc, code); return; }
+    stop("Guest break " + std::to_string(code) + " at " + hex32(pc));
+}
+
 void Runtime::unsupported(std::uint32_t pc, std::uint32_t instruction, const std::string &reason) {
     stop("Unsupported Allegrex instruction " + hex32(instruction) + " at " + hex32(pc) + ": " + reason);
 }

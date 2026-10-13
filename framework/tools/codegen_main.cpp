@@ -231,6 +231,51 @@ std::string emit_regular(const psprecomp::DecodedInstruction &d, std::uint32_t p
                 << "else { ctx.lo = dividend / divisor; ctx.hi = dividend % divisor; } }\n";
         }
         break;
+    case psprecomp::OpcodeKind::Madd:
+    case psprecomp::OpcodeKind::Msub:
+        out << "    { const std::int64_t acc = static_cast<std::int64_t>((static_cast<std::uint64_t>(ctx.hi) << 32u) | ctx.lo); "
+            << "const std::int64_t product = static_cast<std::int64_t>(static_cast<std::int32_t>(" << reg(d.rs) << ")) * "
+            << "static_cast<std::int64_t>(static_cast<std::int32_t>(" << reg(d.rt) << ")); "
+            << "const std::uint64_t result = static_cast<std::uint64_t>(acc " << (d.kind == psprecomp::OpcodeKind::Madd ? "+" : "-") << " product); "
+            << "ctx.lo = static_cast<std::uint32_t>(result); ctx.hi = static_cast<std::uint32_t>(result >> 32u); }\n";
+        break;
+    case psprecomp::OpcodeKind::Maddu:
+    case psprecomp::OpcodeKind::Msubu:
+        out << "    { const std::uint64_t acc = (static_cast<std::uint64_t>(ctx.hi) << 32u) | ctx.lo; "
+            << "const std::uint64_t product = static_cast<std::uint64_t>(" << reg(d.rs) << ") * static_cast<std::uint64_t>(" << reg(d.rt) << "); "
+            << "const std::uint64_t result = acc " << (d.kind == psprecomp::OpcodeKind::Maddu ? "+" : "-") << " product; "
+            << "ctx.lo = static_cast<std::uint32_t>(result); ctx.hi = static_cast<std::uint32_t>(result >> 32u); }\n";
+        break;
+    case psprecomp::OpcodeKind::Break:
+        out << "    rt.guest_break(" << psprecomp::hex32(pc) << "u, " << ((d.word >> 6u) & 0xFFFFFu) << "u, ctx); return;\n";
+        break;
+    case psprecomp::OpcodeKind::Vi2x: {
+        // vi2uc/vi2c pack four lanes into one byte-lane word; vi2us/vi2s pack pairs of halves.
+        const std::uint32_t size_code = ((d.word >> 7u) & 1u) | (((d.word >> 15u) & 1u) << 1u);
+        const std::uint32_t length = size_code + 1u;
+        const std::uint32_t destination = d.word & 0x7Fu;
+        const std::uint32_t source = (d.word >> 8u) & 0x7Fu;
+        const std::uint32_t operation = (d.word >> 16u) & 3u;
+        const bool bytes = operation < 2u;
+        const std::uint32_t out_length = bytes ? 1u : (length == 4u ? 2u : 1u);
+        out << "    { float vfpu_s[4]{}; float vfpu_d[4]{};\n"
+            << "      ctx.read_vfpu_vector(vfpu_s, " << source << "u, " << length << "u);\n"
+            << "      ctx.apply_vfpu_source_prefix(vfpu_s, " << length << "u, 0u);\n"
+            << "      std::uint32_t vfpu_packed[2]{};\n"
+            << "      for (std::uint32_t vfpu_i = 0; vfpu_i < " << length << "u; ++vfpu_i) {\n"
+            << "        std::int32_t vfpu_v = static_cast<std::int32_t>(std::bit_cast<std::uint32_t>(vfpu_s[vfpu_i]));\n";
+        switch (operation) {
+        case 0u: out << "        if (vfpu_v < 0) vfpu_v = 0; vfpu_packed[0] |= (static_cast<std::uint32_t>(vfpu_v >> 23) & 0xFFu) << (vfpu_i * 8u);\n"; break;
+        case 1u: out << "        vfpu_packed[0] |= (static_cast<std::uint32_t>(vfpu_v) >> 24u) << (vfpu_i * 8u);\n"; break;
+        case 2u: out << "        if (vfpu_v < 0) vfpu_v = 0; vfpu_packed[vfpu_i / 2u] |= (static_cast<std::uint32_t>(vfpu_v >> 15) & 0xFFFFu) << ((vfpu_i & 1u) * 16u);\n"; break;
+        default: out << "        vfpu_packed[vfpu_i / 2u] |= (static_cast<std::uint32_t>(vfpu_v) >> 16u) << ((vfpu_i & 1u) * 16u);\n"; break;
+        }
+        out << "      }\n"
+            << "      vfpu_d[0] = std::bit_cast<float>(vfpu_packed[0]); vfpu_d[1] = std::bit_cast<float>(vfpu_packed[1]);\n"
+            << "      ctx.write_vfpu_vector_with_destination_prefix(vfpu_d, " << destination << "u, " << out_length << "u);\n"
+            << "      ctx.eat_vfpu_prefixes(); }\n";
+        break;
+    }
     case psprecomp::OpcodeKind::Mfc1:
         out << "    ctx.set_gpr(" << d.rt << ", std::bit_cast<std::uint32_t>(ctx.fpr[" << d.rd << "]));\n";
         break;
@@ -1056,7 +1101,7 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
                         if (target_is_import) {
                             body << "    ctx.pc = " << psprecomp::hex32(target) << "u;\n"
                                  << "    return;\n";
-                            continue;
+                            break;  // ends this block; `continue` would re-emit the same pc forever
                         }
                         // Otherwise run the callee inline and resume locally only
                         // if it came back to our return address.
@@ -1224,92 +1269,14 @@ int generate_manual(const std::filesystem::path &elf_path,
 // fault/side effect) while discarding only the architectural write to $zero.
 // This pass is deliberately limited to --auto output; manual fixtures retain the
 // readable helper form used by their source-level tests.
-std::string lower_constant_gpr_writes(std::string text) {
-    constexpr std::string_view needle = "ctx.set_gpr(";
-    std::size_t search = 0u;
-    while ((search = text.find(needle, search)) != std::string::npos) {
-        const std::size_t open = search + needle.size() - 1u;
-        std::size_t cursor = open + 1u;
-        while (cursor < text.size() && std::isspace(static_cast<unsigned char>(text[cursor]))) ++cursor;
-        const std::size_t index_begin = cursor;
-        while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor]))) ++cursor;
-        if (cursor == index_begin) { search += needle.size(); continue; }
-        const std::uint32_t index = static_cast<std::uint32_t>(
-            std::strtoul(text.substr(index_begin, cursor - index_begin).c_str(), nullptr, 10));
-        while (cursor < text.size() && std::isspace(static_cast<unsigned char>(text[cursor]))) ++cursor;
-        if (cursor >= text.size() || text[cursor] != ',') { search += needle.size(); continue; }
-        const std::size_t expression_begin = cursor + 1u;
-
-        int paren_depth = 1;
-        bool in_string = false;
-        bool in_char = false;
-        bool escaped = false;
-        std::size_t close = std::string::npos;
-        for (cursor = expression_begin; cursor < text.size(); ++cursor) {
-            const char ch = text[cursor];
-            if (escaped) { escaped = false; continue; }
-            if ((in_string || in_char) && ch == '\\') { escaped = true; continue; }
-            if (!in_char && ch == '"') { in_string = !in_string; continue; }
-            if (!in_string && ch == '\'') { in_char = !in_char; continue; }
-            if (in_string || in_char) continue;
-            if (ch == '(') ++paren_depth;
-            else if (ch == ')' && --paren_depth == 0) { close = cursor; break; }
-        }
-        if (close == std::string::npos) { search += needle.size(); continue; }
-
-        std::size_t first = expression_begin;
-        std::size_t last = close;
-        while (first < last && std::isspace(static_cast<unsigned char>(text[first]))) ++first;
-        while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1u]))) --last;
-        const std::string expression = text.substr(first, last - first);
-        std::string replacement;
-        if (index == 0u) {
-            replacement = "(void)(" + expression + ")";
-        } else if (index < 32u) {
-            replacement = "ctx.gpr[" + std::to_string(index) + "] = (" + expression + ")";
-        } else {
-            // Defensive fallback.  Automatic Allegrex decoding should never emit
-            // an out-of-range architectural GPR, but preserve validation if it does.
-            search = close + 1u;
-            continue;
-        }
-        text.replace(search, close - search + 1u, replacement);
-        search += replacement.size();
-    }
-    return text;
-}
-
-std::string lower_aot_memory_accesses(std::string text) {
-    // the outer generated-unit wrapper creates one AotFastView and
-    // compile-time direct chains pass it by reference across unit boundaries.
-    // Lower ordinary aligned byte/half/word accesses to that shared view.
-    static const std::regex access_pattern(
-        R"(rt\.memory\(\)\.aot_(load|store)(8|16|32)\()" );
-    return std::regex_replace(text, access_pattern, "aot_mem.aot_$1$2(");
-}
-
-std::string lower_constant_fpr_accesses(std::string text) {
-    // All Allegrex FPR operands emitted by the decoder are architectural
-    // constants in [0,31]. Avoid helper calls/bounds branches in enormous AOT
-    // functions so MSVC can keep float lanes in registers across basic blocks.
-    const std::regex read_pattern(R"(ctx\.fpr_bits\(([0-9]+)\))");
-    std::smatch match;
-    std::string lowered;
-    lowered.reserve(text.size());
-    std::string::const_iterator begin = text.cbegin();
-    while (std::regex_search(begin, text.cend(), match, read_pattern)) {
-        lowered.append(begin, match[0].first);
-        const auto index = static_cast<std::uint32_t>(std::strtoul(match[1].str().c_str(), nullptr, 10));
-        if (index < 32u)
-            lowered += "std::bit_cast<std::uint32_t>(ctx.fpr[" + std::to_string(index) + "])";
-        else
-            lowered.append(match[0].first, match[0].second);
-        begin = match[0].second;
-    }
-    lowered.append(begin, text.cend());
-    text = std::move(lowered);
-
-    constexpr std::string_view needle = "ctx.set_fpr_bits(";
+// Rewrites every `<needle><index>, <expr>)` call into `make(index, expr)`.
+// Output is built in a fresh buffer so the pass stays linear in the unit size;
+// the previous in-place std::string::replace was quadratic on large units.
+template <typename Make>
+std::string rewrite_indexed_calls(const std::string &text, std::string_view needle, Make make) {
+    std::string out;
+    out.reserve(text.size() + text.size() / 8u);
+    std::size_t copied = 0u;
     std::size_t search = 0u;
     while ((search = text.find(needle, search)) != std::string::npos) {
         std::size_t cursor = search + needle.size();
@@ -1320,9 +1287,7 @@ std::string lower_constant_fpr_accesses(std::string text) {
         const auto index = static_cast<std::uint32_t>(
             std::strtoul(text.substr(index_begin, cursor - index_begin).c_str(), nullptr, 10));
         while (cursor < text.size() && std::isspace(static_cast<unsigned char>(text[cursor]))) ++cursor;
-        if (index >= 32u || cursor >= text.size() || text[cursor] != ',') {
-            search += needle.size(); continue;
-        }
+        if (cursor >= text.size() || text[cursor] != ',') { search += needle.size(); continue; }
         const std::size_t expression_begin = cursor + 1u;
         int depth = 1;
         bool in_string = false, in_char = false, escaped = false;
@@ -1341,13 +1306,86 @@ std::string lower_constant_fpr_accesses(std::string text) {
         std::size_t first = expression_begin, last = close;
         while (first < last && std::isspace(static_cast<unsigned char>(text[first]))) ++first;
         while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1u]))) --last;
-        const std::string expression = text.substr(first, last - first);
-        const std::string replacement = "ctx.fpr[" + std::to_string(index) +
-            "] = std::bit_cast<float>(" + expression + ")";
-        text.replace(search, close - search + 1u, replacement);
-        search += replacement.size();
+        std::string replacement;
+        if (!make(index, text.substr(first, last - first), replacement)) { search = close + 1u; continue; }
+        out.append(text, copied, search - copied);
+        out += replacement;
+        copied = search = close + 1u;
+    }
+    out.append(text, copied, std::string::npos);
+    return out;
+}
+
+// The generated corpus uses architectural register numbers known
+// at code-generation time.  Lower constant writes in the emitted source:
+//   ctx.set_gpr(8, expr) -> ctx.gpr[8] = (expr)
+//   ctx.set_gpr(0, expr) -> (void)(expr)
+// The second form preserves source/memory evaluation (including any guest
+// fault/side effect) while discarding only the architectural write to $zero.
+std::string lower_constant_gpr_writes(std::string text) {
+    return rewrite_indexed_calls(text, "ctx.set_gpr(", [](std::uint32_t index, const std::string &expression, std::string &out) {
+        if (index == 0u) out = "(void)(" + expression + ")";
+        else if (index < 32u) out = "ctx.gpr[" + std::to_string(index) + "] = (" + expression + ")";
+        else return false;
+        return true;
+    });
+}
+
+std::string replace_all_literal(const std::string &text, std::string_view from, std::string_view to) {
+    std::string out;
+    out.reserve(text.size());
+    std::size_t copied = 0u, found = 0u;
+    while ((found = text.find(from, copied)) != std::string::npos) {
+        out.append(text, copied, found - copied);
+        out += to;
+        copied = found + from.size();
+    }
+    out.append(text, copied, std::string::npos);
+    return out;
+}
+
+std::string lower_aot_memory_accesses(std::string text) {
+    // the outer generated-unit wrapper creates one AotFastView and
+    // compile-time direct chains pass it by reference across unit boundaries.
+    // Lower ordinary aligned byte/half/word accesses to that shared view.
+    for (const char *op : {"load8(", "load16(", "load32(", "store8(", "store16(", "store32("}) {
+        text = replace_all_literal(text, std::string("rt.memory().aot_") + op, std::string("aot_mem.aot_") + op);
     }
     return text;
+}
+
+std::string lower_constant_fpr_accesses(std::string text) {
+    // All Allegrex FPR operands emitted by the decoder are architectural
+    // constants in [0,31]. Avoid helper calls/bounds branches in enormous AOT
+    // functions so MSVC can keep float lanes in registers across basic blocks.
+    {
+        constexpr std::string_view needle = "ctx.fpr_bits(";
+        std::string lowered;
+        lowered.reserve(text.size());
+        std::size_t copied = 0u, found = 0u;
+        while ((found = text.find(needle, copied)) != std::string::npos) {
+            std::size_t cursor = found + needle.size();
+            const std::size_t digits = cursor;
+            while (cursor < text.size() && std::isdigit(static_cast<unsigned char>(text[cursor]))) ++cursor;
+            lowered.append(text, copied, found - copied);
+            if (cursor > digits && cursor < text.size() && text[cursor] == ')' &&
+                std::strtoul(text.substr(digits, cursor - digits).c_str(), nullptr, 10) < 32u) {
+                lowered += "std::bit_cast<std::uint32_t>(ctx.fpr[" + text.substr(digits, cursor - digits) + "])";
+                copied = cursor + 1u;
+            } else {
+                lowered.append(needle);
+                copied = found + needle.size();
+            }
+        }
+        lowered.append(text, copied, std::string::npos);
+        text = std::move(lowered);
+    }
+
+    return rewrite_indexed_calls(text, "ctx.set_fpr_bits(", [](std::uint32_t index, const std::string &expression, std::string &out) {
+        if (index >= 32u) return false;
+        out = "ctx.fpr[" + std::to_string(index) + "] = std::bit_cast<float>(" + expression + ")";
+        return true;
+    });
 }
 
 // VFPU operands in automatic AOT are encoded literals. Convert the
@@ -1355,6 +1393,11 @@ std::string lower_constant_fpr_accesses(std::string text) {
 // scalar-vs-control selection and 1..4-lane loops disappear before MSVC sees the
 // giant translation units. Dynamic-size matrix helpers remain untouched.
 std::string lower_constant_vfpu_accesses(std::string text) {
+    // libstdc++ std::regex is slow on multi-megabyte inputs; skip units with no VFPU helpers.
+    if (text.find("ctx.read_vfpu") == std::string::npos && text.find("ctx.write_vfpu") == std::string::npos &&
+        text.find("ctx.apply_vfpu") == std::string::npos && text.find("ctx.fpu_float_to_word(") == std::string::npos &&
+        text.find("ctx.execute_vfpu") == std::string::npos && text.find("vfpu_scalar_bits(") == std::string::npos)
+        return text;
     const std::regex read_prefix(
         R"(ctx\.read_vfpu_vector_with_source_prefix\(([A-Za-z0-9_]+), ([0-9]+)u, ([1-4])u, ([01])u\);)" );
     text = std::regex_replace(text, read_prefix,
