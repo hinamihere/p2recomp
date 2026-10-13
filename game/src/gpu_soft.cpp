@@ -994,9 +994,14 @@ void raster_sprite(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
 void raster_line(const Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
     const float dx = b.x - a.x, dy = b.y - a.y;
     const int steps = static_cast<int>(std::max(std::fabs(dx), std::fabs(dy)));
-    for (int i = 0; i <= steps; ++i) {
+    // Like the GE, a line leaves out its end pixel (a point, steps == 0, is one pixel).
+    // Positions are computed as a + d*i/steps, not a + d*(i/steps): the rounded t made
+    // full-width lines skip every other pixel past the middle.
+    const int last = steps > 0 ? steps - 1 : 0;
+    for (int i = 0; i <= last; ++i) {
         const float t = steps > 0 ? static_cast<float>(i) / steps : 0.f;
-        const int x = static_cast<int>(a.x + dx * t), y = static_cast<int>(a.y + dy * t);
+        const int x = steps > 0 ? fast_floor(a.x + dx * static_cast<float>(i) / static_cast<float>(steps)) : fast_floor(a.x);
+        const int y = steps > 0 ? fast_floor(a.y + dy * static_cast<float>(i) / static_cast<float>(steps)) : fast_floor(a.y);
         if (x < p.sx0 || x > p.sx1 || y < p.sy0 || y > p.sy1) continue;
         float col[4];
         for (int k = 0; k < 4; ++k) col[k] = a.color[k] + (b.color[k] - a.color[k]) * t;
