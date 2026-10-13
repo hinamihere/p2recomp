@@ -68,8 +68,9 @@ void audio_callback(void *, Uint8 *stream, int len) {
 
 } // namespace
 
-bool init(const std::string &title, int scale) {
+bool init(const std::string &title, int scale, bool smooth) {
     SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, smooth ? "1" : "0");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         LOG_E("host", "SDL_Init failed: %s", SDL_GetError());
         return false;
@@ -116,6 +117,12 @@ bool pump_events() {
         case SDL_QUIT: return false;
         case SDL_KEYDOWN:
             if (e.key.keysym.sym == SDLK_ESCAPE) return false;
+            if (e.key.keysym.sym == SDLK_F11 ||
+                (e.key.keysym.sym == SDLK_RETURN && (e.key.keysym.mod & KMOD_ALT) != 0)) {
+                const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+                SDL_SetWindowFullscreen(g_window, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                break;
+            }
             g_keys |= key_to_button(e.key.keysym.sym);
             break;
         case SDL_KEYUP: g_keys &= ~key_to_button(e.key.keysym.sym); break;

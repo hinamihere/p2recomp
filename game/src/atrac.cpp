@@ -117,6 +117,9 @@ u32 parse_riff(Atrac &a, const u8 *buf, u32 size) {
     if (a.loop_start >= 0) {
         a.loop_start = a.loop_start - a.first_sample_offset;
         a.loop_end = a.loop_end - a.first_sample_offset;
+        // Some tracks place the loop end a few samples past the last sample; the
+        // loop must still trigger at the real end instead of finishing the track.
+        a.loop_end = std::min(a.loop_end, a.end_sample);
     }
     if (a.codec == kAt3Plus) {
         int align = a.block_align;

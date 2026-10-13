@@ -44,6 +44,7 @@ struct Options {
     std::filesystem::path ms{"memstick"};
     int scale{2};
     bool headless{};
+    bool smooth{};
     u32 dump_every{};
     std::string input_script;
     std::string audio_dump;
@@ -60,6 +61,7 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--ms") o.ms = next();
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
+        else if (a == "--smooth") o.smooth = true;
         else if (a == "--input") o.input_script = next();
         else if (a == "--dump-audio") o.audio_dump = next();
         else if (a == "--dump-frames") o.dump_every = static_cast<u32>(std::atoi(next().c_str()));
@@ -131,7 +133,7 @@ int run(int argc, char **argv) {
     r.set_break_handler(on_break);
 
     if (!opt.headless) {
-        if (!host::init("Persona 2: Innocent Sin", opt.scale)) return 1;
+        if (!host::init("Persona 2: Innocent Sin", opt.scale, opt.smooth)) return 1;
         if (!opt.audio_dump.empty()) audio_dump_to(opt.audio_dump);
         audio_start();
     }

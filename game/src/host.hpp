@@ -7,7 +7,7 @@
 
 namespace p2::host {
 
-bool init(const std::string &title, int scale);
+bool init(const std::string &title, int scale, bool smooth);
 void shutdown();
 
 // Presents a 480x272 RGBA8888 frame (R,G,B,A byte order).
