@@ -13,11 +13,11 @@ Playable from boot into the story:
 - intro logos, opening anime movie (H.264 + ATRAC3+), title screen
 - New Game, name entry, story scenes with dialogue and portraits
 - field exploration (3D map, camera), main menu, map screen
-- background music (ATRAC3+ streaming with loops), sound effects (SAS), movie audio
+- background music (ATRAC3+ streaming with loops), sound effects (SAS with reverb), movie audio
 - saves stored on the host (`memstick/PSP/SAVEDATA/...`)
 - runs at the game's native 30 fps
 
-Known gaps: reverb (SAS effects), Bezier/spline surfaces, utility dialogs other than savedata are
+Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a straightforward software rasterizer (correct but CPU heavy).
 
 ## Why a recomp and not a matching decomp
