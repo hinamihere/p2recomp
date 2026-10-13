@@ -80,10 +80,15 @@ The ISO is found automatically in the working directory or one level below (`--i
 | `--dump-audio <file>` | record the final audio mix (raw s16 stereo 44.1 kHz) |
 | `--input "<vblank>=BUTTON[+BUTTON][:frames],..."` | scripted input for unattended tests |
 | `--exit-after <vblank>` | stop cleanly after N vblanks |
+| `--turbo-until <vblank>` | fast-forward until that vblank |
+| `--load-state N` | start from savestate slot N |
+| `--save-state-at <vblank>` | write savestate slot 1 at that vblank (scripted tests) |
 
 Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and dump textures),
 `P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`.
 
 Controls: arrows = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q/W = L/R,
 Enter = Start, Backspace = Select, F11 or Alt+Enter = fullscreen, Esc = quit.
+Hold Tab to fast-forward. F5 = savestate, F8 = load savestate (Shift for a second slot);
+states go to `states/`. A savestate is taken at the next safe point (not during movies).
 XInput/SDL gamepads are supported.

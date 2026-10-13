@@ -2,6 +2,7 @@
 // with pitch and ADSR envelopes). Hardware behaviour (envelope curves, key-on
 // delay, two-tap resampling) follows what PPSSPP/JPCSP measured on hardware.
 #include "sas.hpp"
+#include "savestate.hpp"
 
 #include "kernel.hpp"
 #include "sas_reverb.hpp"
@@ -564,6 +565,44 @@ void register_sas_imports() {
     hle(S, "__sceSasRevParam", SasRevParam);
     hle(S, "__sceSasRevEVOL", SasRevEVOL);
     hle(S, "__sceSasRevVON", SasRevVON);
+}
+
+void sas_save(StateWriter &w) {
+    w.section("SAS ");
+    w.pod(g_sas.grain);
+    w.pod(g_sas.max_voices);
+    w.pod(g_sas.output_mode);
+    w.pod(g_sas.sample_rate);
+    w.pod(g_sas.voices);
+    w.vec(g_sas.mix);
+    w.vec(g_sas.send);
+    w.vec(g_sas.temp);
+    g_sas.reverb.save(w);
+    w.pod(g_sas.dry_on);
+    w.pod(g_sas.wet_on);
+    w.pod(g_sas.effect_left);
+    w.pod(g_sas.effect_right);
+    w.vec(g_sas.send_22k);
+    w.vec(g_sas.wet);
+}
+
+void sas_load(StateReader &r) {
+    r.section("SAS ");
+    r.pod(g_sas.grain);
+    r.pod(g_sas.max_voices);
+    r.pod(g_sas.output_mode);
+    r.pod(g_sas.sample_rate);
+    r.pod(g_sas.voices);
+    r.vec(g_sas.mix);
+    r.vec(g_sas.send);
+    r.vec(g_sas.temp);
+    g_sas.reverb.load(r);
+    r.pod(g_sas.dry_on);
+    r.pod(g_sas.wet_on);
+    r.pod(g_sas.effect_left);
+    r.pod(g_sas.effect_right);
+    r.vec(g_sas.send_22k);
+    r.vec(g_sas.wet);
 }
 
 } // namespace p2

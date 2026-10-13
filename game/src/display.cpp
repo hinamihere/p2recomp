@@ -1,5 +1,6 @@
 // sceDisplay and sceCtrl: framebuffer presentation at vblank and pad sampling.
 #include "display.hpp"
+#include "savestate.hpp"
 
 #include "host.hpp"
 #include "kernel.hpp"
@@ -280,6 +281,30 @@ void register_display_imports() {
     hle(C, "sceCtrlSetSamplingCycle", CtrlSetSamplingCycle);
     hle(C, "sceCtrlSetSamplingMode", CtrlSetSamplingMode);
     hle(C, "sceCtrlSetIdleCancelThreshold", CtrlSetIdleCancelThreshold);
+}
+
+void display_save(StateWriter &w) {
+    w.section("DISP");
+    w.pod(g_display.fb_addr);
+    w.pod(g_display.stride);
+    w.pod(g_display.format);
+    w.pod(g_display.mode);
+    w.pod(g_ctrl_samples);
+    w.pod(g_ctrl_last_read);
+    w.pod(g_sampling_cycle);
+    w.pod(g_sampling_mode);
+}
+
+void display_load(StateReader &r) {
+    r.section("DISP");
+    r.pod(g_display.fb_addr);
+    r.pod(g_display.stride);
+    r.pod(g_display.format);
+    r.pod(g_display.mode);
+    r.pod(g_ctrl_samples);
+    r.pod(g_ctrl_last_read);
+    r.pod(g_sampling_cycle);
+    r.pod(g_sampling_mode);
 }
 
 } // namespace p2

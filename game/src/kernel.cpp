@@ -1,6 +1,7 @@
 #include "kernel.hpp"
 
 #include "gpu_state.hpp"
+#include "savestate.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -651,6 +652,7 @@ void Kernel::process_events(AllegrexContext &c) {
 }
 
 void Kernel::on_dispatch(AllegrexContext &c) {
+    if (savestate_service()) return;
     if ((++dispatch_counter_ & 31u) != 0u) return;
     process_events(c);
 }
@@ -693,4 +695,199 @@ void Kernel::report_performance() {
     perf_flips = 0u;
 }
 
+// --- savestates --------------------------------------------------------------------
+
+std::string Kernel::save_blocker() const {
+    if (in_hle_call) return "inside an HLE call";
+    if (interrupt_depth_ > 0 || !pending_interrupts_.empty()) return "an interrupt is in progress";
+    for (const auto &[uid, t] : threads_)
+        if (!t->callback_frames.empty()) return "a callback is running";
+    return {};
+}
+
+namespace {
+void put_deadline(StateWriter &w, u64 deadline, u64 now) { w.pod<u64>(deadline == 0u ? 0u : (deadline > now ? deadline - now : 1u)); }
+u64 get_deadline(StateReader &r, u64 now) { const u64 rel = r.pod<u64>(); return rel == 0u ? 0u : now + rel; }
+} // namespace
+
+void Kernel::save(StateWriter &w, const AllegrexContext &live) {
+    const u64 now = now_us();
+    w.section("KERN");
+    w.pod(next_uid_);
+    w.pod(seq_);
+    w.pod(g_front_seq);
+    w.pod(g_back_seq);
+    w.pod(vcount_);
+    put_deadline(w, next_vblank_us_, now);
+    w.pod(interrupts_enabled_);
+    w.pod(idle_);
+    w.pod(current_ != nullptr ? current_->uid : 0);
+
+    w.pod(static_cast<u32>(threads_.size()));
+    for (const auto &[uid, t] : threads_) {
+        w.pod(t->uid);
+        w.str(t->name);
+        w.pod(t->entry);
+        w.pod(t->attr);
+        w.pod(t->gp);
+        w.pod(t->init_priority);
+        w.pod(t->priority);
+        w.pod(t->stack_block);
+        w.pod(t->stack_bottom);
+        w.pod(t->stack_size);
+        w.pod(t->state);
+        // The running thread's registers live in the runtime context.
+        w.pod(t.get() == current_ && !idle_ ? live : t->ctx);
+        w.pod(t->wait);
+        w.pod(t->wait_id);
+        put_deadline(w, t->deadline, now);
+        w.pod(t->timeout_ptr);
+        w.pod(t->wait_cb);
+        w.bytes(t->wait_value, sizeof(t->wait_value));
+        w.pod(t->ready_seq);
+        w.pod(t->wait_seq);
+        w.pod(t->exit_status);
+        w.pod(t->running_callbacks);
+    }
+
+    w.pod(static_cast<u32>(callbacks.size()));
+    for (const auto &[uid, cb] : callbacks) {
+        w.pod(cb.uid); w.str(cb.name); w.pod(cb.thread_uid); w.pod(cb.entry); w.pod(cb.common); w.pod(cb.notify_count); w.pod(cb.notify_arg);
+    }
+    w.pod(static_cast<u32>(semaphores.size()));
+    for (const auto &[uid, sem] : semaphores) {
+        w.pod(sem.uid); w.str(sem.name); w.pod(sem.attr); w.pod(sem.count); w.pod(sem.max);
+    }
+    w.pod(static_cast<u32>(event_flags.size()));
+    for (const auto &[uid, e] : event_flags) {
+        w.pod(e.uid); w.str(e.name); w.pod(e.attr); w.pod(e.pattern);
+    }
+    w.pod(static_cast<u32>(lw_mutexes.size()));
+    for (const auto &[uid, mx] : lw_mutexes) {
+        w.pod(mx.uid); w.str(mx.name); w.pod(mx.workarea); w.pod(mx.attr);
+    }
+    w.pod(static_cast<u32>(blocks_.size()));
+    for (const auto &[uid, b] : blocks_) {
+        w.pod(b.uid); w.str(b.name); w.pod(b.address); w.pod(b.size); w.pod(b.partition);
+    }
+    w.pod(static_cast<u32>(free_.size()));
+    for (const auto &f : free_) { w.pod(f.start); w.pod(f.end); }
+    w.pod(static_cast<u32>(subintrs_.size()));
+    for (const auto &[key, sub] : subintrs_) {
+        w.pod(key.first); w.pod(key.second); w.pod(sub.handler); w.pod(sub.arg); w.pod(sub.enabled);
+    }
+}
+
+void Kernel::load(StateReader &r, AllegrexContext &live) {
+    const u64 now = now_us();
+    r.section("KERN");
+    r.pod(next_uid_);
+    r.pod(seq_);
+    r.pod(g_front_seq);
+    r.pod(g_back_seq);
+    r.pod(vcount_);
+    next_vblank_us_ = get_deadline(r, now);
+    r.pod(interrupts_enabled_);
+    r.pod(idle_);
+    const s32 current_uid = r.pod<s32>();
+
+    threads_.clear();
+    const u32 nthreads = r.pod<u32>();
+    for (u32 i = 0; i < nthreads; ++i) {
+        auto t = std::make_unique<Thread>();
+        r.pod(t->uid);
+        t->name = r.str();
+        r.pod(t->entry);
+        r.pod(t->attr);
+        r.pod(t->gp);
+        r.pod(t->init_priority);
+        r.pod(t->priority);
+        r.pod(t->stack_block);
+        r.pod(t->stack_bottom);
+        r.pod(t->stack_size);
+        r.pod(t->state);
+        r.pod(t->ctx);
+        r.pod(t->wait);
+        r.pod(t->wait_id);
+        t->deadline = get_deadline(r, now);
+        r.pod(t->timeout_ptr);
+        r.pod(t->wait_cb);
+        r.bytes(t->wait_value, sizeof(t->wait_value));
+        r.pod(t->ready_seq);
+        r.pod(t->wait_seq);
+        r.pod(t->exit_status);
+        r.pod(t->running_callbacks);
+        const s32 uid = t->uid;
+        threads_[uid] = std::move(t);
+    }
+
+    callbacks.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        Callback cb;
+        r.pod(cb.uid); cb.name = r.str(); r.pod(cb.thread_uid); r.pod(cb.entry); r.pod(cb.common); r.pod(cb.notify_count); r.pod(cb.notify_arg);
+        callbacks[cb.uid] = cb;
+    }
+    semaphores.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        Semaphore sem;
+        r.pod(sem.uid); sem.name = r.str(); r.pod(sem.attr); r.pod(sem.count); r.pod(sem.max);
+        semaphores[sem.uid] = sem;
+    }
+    event_flags.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        EventFlag e;
+        r.pod(e.uid); e.name = r.str(); r.pod(e.attr); r.pod(e.pattern);
+        event_flags[e.uid] = e;
+    }
+    lw_mutexes.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        LwMutex mx;
+        r.pod(mx.uid); mx.name = r.str(); r.pod(mx.workarea); r.pod(mx.attr);
+        lw_mutexes[mx.uid] = mx;
+    }
+    blocks_.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        MemoryBlock b;
+        r.pod(b.uid); b.name = r.str(); r.pod(b.address); r.pod(b.size); r.pod(b.partition);
+        blocks_[b.uid] = b;
+    }
+    free_.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        FreeRange f;
+        r.pod(f.start); r.pod(f.end);
+        free_.push_back(f);
+    }
+    subintrs_.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        std::pair<int, int> key;
+        SubIntr sub;
+        r.pod(key.first); r.pod(key.second); r.pod(sub.handler); r.pod(sub.arg); r.pod(sub.enabled);
+        subintrs_[key] = sub;
+    }
+
+    pending_interrupts_.clear();
+    interrupt_frames_.clear();
+    interrupt_depth_ = 0;
+    in_hle_call = false;
+    auto it = threads_.find(current_uid);
+    current_ = it != threads_.end() ? it->second.get() : nullptr;
+    if (idle_ || current_ == nullptr) {
+        AllegrexContext idle_ctx{};
+        idle_ctx.pc = kIdleAddr;
+        idle_ctx.gpr[29] = kInterruptStackTop - 0x400u;
+        live = idle_ctx;
+        idle_ = true;
+        current_ = nullptr;
+    } else {
+        live = current_->ctx;
+    }
+    // A fresh identity makes sure no native frame from before the load resumes.
+    psprecomp::set_runtime_thread_identity(nested_identity_--, "savestate");
+    set_identity();
+}
+
 } // namespace p2
+
+void p2::kernel_save(StateWriter &w) { g_kernel.save(w, rt().cpu()); }
+void p2::kernel_load(StateReader &r) { g_kernel.load(r, rt().cpu()); }
+std::string p2::kernel_save_blocker() { return g_kernel.save_blocker(); }

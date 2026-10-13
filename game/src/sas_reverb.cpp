@@ -1,4 +1,5 @@
 #include "sas_reverb.hpp"
+#include "savestate.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -123,6 +124,24 @@ void SasReverb::process(s16 *output, const s16 *input, int frames, int vol_left,
         output[i * 4 + 3] = 0;
         if (++pos_ >= kBufSize) pos_ -= d.size;
     }
+}
+
+void SasReverb::save(StateWriter &w) const {
+    w.vec(work_);
+    w.pod(data_);
+    w.pod(preset_);
+    w.pod(pos_);
+    w.pod(delay_);
+    w.pod(feedback_);
+}
+
+void SasReverb::load(StateReader &r) {
+    r.vec(work_);
+    r.pod(data_);
+    r.pod(preset_);
+    r.pod(pos_);
+    r.pod(delay_);
+    r.pod(feedback_);
 }
 
 } // namespace p2

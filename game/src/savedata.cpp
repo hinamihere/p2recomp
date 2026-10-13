@@ -2,6 +2,7 @@
 // as plain (unencrypted) files plus a PARAM.SFO. Dialog modes complete
 // immediately; list dialogs pick the most sensible entry automatically.
 #include "savedata.hpp"
+#include "savestate.hpp"
 
 #include "io.hpp"
 #include "kernel.hpp"
@@ -447,6 +448,16 @@ void register_savedata_imports() {
     hle(U, "sceUtilitySavedataGetStatus", SavedataGetStatus);
     hle(U, "sceUtilitySavedataUpdate", SavedataUpdate);
     hle(U, "sceUtilitySavedataShutdownStart", SavedataShutdownStart);
+}
+
+void savedata_save(StateWriter &w) {
+    w.section("SAVE");
+    w.pod(g_dialog);
+}
+
+void savedata_load(StateReader &r) {
+    r.section("SAVE");
+    r.pod(g_dialog);
 }
 
 } // namespace p2

@@ -3,6 +3,7 @@
 // copy every 2048-byte pack, demux the MPEG program stream ourselves and decode
 // H.264 with FFmpeg and ATRAC3+ with the at3_standalone decoder.
 #include "mpeg.hpp"
+#include "savestate.hpp"
 
 #include "kernel.hpp"
 #include "at3_decoders.h"
@@ -580,5 +581,7 @@ void register_mpeg_imports() {
     hle(M, "sceMpegAvcInitYCbCr", MpegAvcInitYCbCr);
     hle(M, "sceMpegAvcCsc", MpegAvcCsc);
 }
+
+std::string mpeg_save_blocker() { return g_contexts.empty() ? std::string{} : std::string{"a movie is playing"}; }
 
 } // namespace p2

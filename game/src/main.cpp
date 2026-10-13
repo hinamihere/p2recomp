@@ -1,6 +1,7 @@
 // Persona 2: Innocent Sin (PSP, ULES-01557) — native host for the statically
 // recompiled EBOOT.
 #include "atrac.hpp"
+#include "savestate.hpp"
 #include "audio.hpp"
 #include "display.hpp"
 #include "ge.hpp"
@@ -47,6 +48,8 @@ struct Options {
     bool smooth{};
     u64 exit_after{};
     u64 turbo_until{};
+    u64 save_state_at{};
+    int load_state{-1};
     u32 dump_every{};
     std::string input_script;
     std::string audio_dump;
@@ -64,6 +67,8 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
         else if (a == "--smooth") o.smooth = true;
+        else if (a == "--save-state-at") o.save_state_at = std::strtoull(next().c_str(), nullptr, 0);
+        else if (a == "--load-state") o.load_state = std::atoi(next().c_str());
         else if (a == "--turbo-until") o.turbo_until = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--exit-after") o.exit_after = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--input") o.input_script = next();
@@ -151,6 +156,8 @@ int run(int argc, char **argv) {
 
     g_kernel.init(module->gp, module_end);
     g_kernel.set_turbo_until(opt.turbo_until);
+    if (opt.save_state_at != 0u) savestate_schedule_save(1, opt.save_state_at);
+    if (opt.load_state >= 0) savestate_request_load(opt.load_state);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 

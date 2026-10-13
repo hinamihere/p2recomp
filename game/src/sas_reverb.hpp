@@ -9,6 +9,9 @@
 
 namespace p2 {
 
+class StateWriter;
+class StateReader;
+
 class SasReverb {
 public:
     SasReverb();
@@ -18,6 +21,8 @@ public:
     // input: 22 kHz stereo pairs; output: 44 kHz stereo (zero-stuffed), 2 frames per input frame.
     void process(s16 *output, const s16 *input, int frames, int vol_left, int vol_right);
     int preset() const { return preset_; }
+    void save(StateWriter &w) const;
+    void load(StateReader &r);
 
 private:
     struct Data {

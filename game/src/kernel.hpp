@@ -24,6 +24,9 @@
 
 namespace p2 {
 
+class StateWriter;
+class StateReader;
+
 namespace err {
 constexpr u32 ERROR = 0x80020001u;
 constexpr u32 ILLEGAL_CONTEXT = 0x80020064u;
@@ -289,6 +292,11 @@ public:
     u64 listener_deadline{};
 
     u32 module_gp() const { return module_gp_; }
+
+    // Savestates (see savestate.cpp). Only valid at an outer dispatch boundary.
+    std::string save_blocker() const;
+    void save(StateWriter &w, const AllegrexContext &live);
+    void load(StateReader &r, AllegrexContext &live);
     void dump_threads() const;
 
 private:

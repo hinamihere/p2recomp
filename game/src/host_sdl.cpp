@@ -1,4 +1,5 @@
 #include "host.hpp"
+#include "savestate.hpp"
 
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
@@ -121,6 +122,12 @@ bool pump_events() {
                 (e.key.keysym.sym == SDLK_RETURN && (e.key.keysym.mod & KMOD_ALT) != 0)) {
                 const bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
                 SDL_SetWindowFullscreen(g_window, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                break;
+            }
+            if (e.key.keysym.sym == SDLK_F5 || e.key.keysym.sym == SDLK_F8) {
+                const int slot = (e.key.keysym.mod & KMOD_SHIFT) != 0 ? 2 : 1;
+                if (e.key.keysym.sym == SDLK_F5) savestate_request_save(slot);
+                else savestate_request_load(slot);
                 break;
             }
             g_keys |= key_to_button(e.key.keysym.sym);

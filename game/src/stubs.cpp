@@ -1,6 +1,7 @@
 // Placeholder HLE for libraries that are not implemented yet. Each stub logs
 // its first call so missing behaviour is visible while bringing the game up.
 #include "audio.hpp"
+#include "savestate.hpp"
 #include "kernel.hpp"
 
 #include <set>
@@ -90,6 +91,20 @@ void register_stub_imports() {
     hle(U, "sceUtilityGamedataInstallAbort", GamedataInstallAbort);
     hle(U, "sceUtilityLoadModule", UtilityLoadModule);
     hle(U, "sceUtilityUnloadModule", UtilityUnloadModule);
+}
+
+void utility_save(StateWriter &w) {
+    w.section("UTIL");
+    w.pod(g_msg);
+    w.pod(g_shot);
+    w.pod(g_install);
+}
+
+void utility_load(StateReader &r) {
+    r.section("UTIL");
+    r.pod(g_msg);
+    r.pod(g_shot);
+    r.pod(g_install);
 }
 
 } // namespace p2

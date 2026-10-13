@@ -1,6 +1,7 @@
 // sceGe_user: display lists are executed synchronously when enqueued or when
 // the stall address advances. Draw commands go to the software rasterizer.
 #include "ge.hpp"
+#include "savestate.hpp"
 
 #include "gpu_state.hpp"
 #include "kernel.hpp"
@@ -299,6 +300,29 @@ void register_ge_imports() {
     hle(G, "sceGeBreak", GeBreak);
     hle(G, "sceGeContinue", GeContinue);
     hle(G, "sceGeEdramGetAddr", GeEdramGetAddr);
+}
+
+void ge_save(StateWriter &w) {
+    w.section("GE  ");
+    w.pod(g_state);
+    w.pod(g_callbacks);
+    w.pod(g_next_list);
+    w.pod(static_cast<u32>(g_lists.size()));
+    for (const auto &[id, dl] : g_lists) w.pod(dl);
+}
+
+void ge_load(StateReader &r) {
+    r.section("GE  ");
+    r.pod(g_state);
+    g_state.palette_dirty = true;
+    r.pod(g_callbacks);
+    r.pod(g_next_list);
+    g_lists.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        const auto dl = r.pod<DisplayList>();
+        g_lists[dl.id] = dl;
+    }
+    g_processing = false;
 }
 
 } // namespace p2

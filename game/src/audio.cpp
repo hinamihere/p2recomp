@@ -2,6 +2,7 @@
 // output copies the samples immediately and suspends the caller until the
 // channel queue has drained to one buffer, matching the PSP's double buffering.
 #include "audio.hpp"
+#include "savestate.hpp"
 
 #include "host.hpp"
 #include "kernel.hpp"
@@ -216,6 +217,31 @@ void register_audio_imports() {
     hle(A, "sceAudioChangeChannelVolume", AudioChangeChannelVolume);
     hle(A, "sceAudioSetChannelDataLen", AudioSetChannelDataLen);
     hle(A, "sceAudioGetChannelRestLength", AudioGetChannelRestLength);
+}
+
+void audio_save(StateWriter &w) {
+    std::lock_guard lock(g_mutex);
+    w.section("AUDI");
+    for (const auto &ch : g_channels) {
+        w.pod(ch.reserved);
+        w.pod(ch.sample_count);
+        w.pod(ch.format);
+        w.pod(ch.left_volume);
+        w.pod(ch.right_volume);
+    }
+}
+
+void audio_load(StateReader &r) {
+    std::lock_guard lock(g_mutex);
+    r.section("AUDI");
+    for (auto &ch : g_channels) {
+        r.pod(ch.reserved);
+        r.pod(ch.sample_count);
+        r.pod(ch.format);
+        r.pod(ch.left_volume);
+        r.pod(ch.right_volume);
+        ch.queue.clear();
+    }
 }
 
 } // namespace p2

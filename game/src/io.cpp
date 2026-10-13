@@ -1,6 +1,7 @@
 // IoFileMgrForUser: disc files come from the extracted ISO tree (or raw ISO
 // sectors for sce_lbn paths); ms0: maps to a host directory.
 #include "io.hpp"
+#include "savestate.hpp"
 
 #include "kernel.hpp"
 
@@ -25,6 +26,7 @@ struct OpenFile {
     std::string path;
     s64 async_result{};
     bool async_pending{};
+    u32 flags{};
 };
 
 IoConfig g_config;
@@ -110,6 +112,7 @@ s32 open_file(const std::string &psp_path, u32 flags) {
     const Device dev = parse_path(psp_path, relative);
     auto f = std::make_unique<OpenFile>();
     f->path = psp_path;
+    f->flags = flags;
     if (dev == Device::Disc) {
         u64 lbn = 0, size = 0;
         if (parse_lbn(relative, lbn, size)) {
@@ -386,6 +389,58 @@ void register_io_imports() {
     hle(L, "sceIoRename", IoRename);
     hle(L, "sceIoDevctl", IoDevctl);
     hle(L, "sceIoIoctl", IoIoctl);
+}
+
+void io_save(StateWriter &w) {
+    w.section("IO  ");
+    w.pod(g_next_fd);
+    w.pod(static_cast<u32>(g_files.size()));
+    for (const auto &[fd, f] : g_files) {
+        w.pod(fd);
+        w.str(f->path);
+        w.pod(f->flags);
+        w.pod(f->is_dir);
+        w.pod(f->position);
+        w.pod(f->async_result);
+        w.pod(f->async_pending);
+    }
+}
+
+void io_load(StateReader &r) {
+    r.section("IO  ");
+    for (auto &[fd, f] : g_files)
+        if (f->file != nullptr) std::fclose(f->file);
+    g_files.clear();
+    const s32 next_fd = r.pod<s32>();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        const s32 fd = r.pod<s32>();
+        const std::string path = r.str();
+        const u32 flags = r.pod<u32>();
+        const bool is_dir = r.pod<bool>();
+        const u64 position = r.pod<u64>();
+        const s64 async_result = r.pod<s64>();
+        const bool async_pending = r.pod<bool>();
+        std::unique_ptr<OpenFile> f;
+        if (is_dir) {
+            f = std::make_unique<OpenFile>();
+            f->is_dir = true;
+            f->path = path;
+        } else {
+            // Reopen without truncating: the file now holds what was written before the save.
+            const s32 tmp = open_file(path, flags & ~(PSP_O_TRUNC | PSP_O_APPEND));
+            if (tmp < 0) {
+                LOG_W("state", "could not reopen '%s' (fd %d)", path.c_str(), fd);
+                continue;
+            }
+            f = std::move(g_files[tmp]);
+            g_files.erase(tmp);
+        }
+        f->position = position;
+        f->async_result = async_result;
+        f->async_pending = async_pending;
+        g_files[fd] = std::move(f);
+    }
+    g_next_fd = next_fd;
 }
 
 } // namespace p2

@@ -6,6 +6,7 @@
 // frames are consumed sequentially from the ring. Seeking (loops, resets)
 // empties the ring and asks the game for data from the new position.
 #include "atrac.hpp"
+#include "savestate.hpp"
 
 #include "kernel.hpp"
 #include "at3_decoders.h"
@@ -56,6 +57,7 @@ struct Atrac {
     ATRAC3PContext *ctx3p{};
     ATRAC3Context *ctx3{};
     std::vector<u8> frame_buf;
+    std::vector<u8> extra; // ATRAC3 codec extradata (fmt chunk)
     std::vector<float> pcm[2];
 
     int offset_full() const { return (codec == kAt3Plus ? 0x170 : 0x45) + first_sample_offset; }
@@ -128,6 +130,7 @@ u32 parse_riff(Atrac &a, const u8 *buf, u32 size) {
         int align = a.block_align;
         a.ctx3 = atrac3_alloc(a.channels, &align, extra.data(), static_cast<int>(extra.size()));
     }
+    a.extra = extra;
     if (a.ctx3p == nullptr && a.ctx3 == nullptr) return ERR_UNKNOWN_FORMAT;
     return 0u;
 }
@@ -483,6 +486,38 @@ void register_atrac_imports() {
     hle(A, "sceAtracGetSecondBufferInfo", AtracGetSecondBufferInfo);
     hle(A, "sceAtracSetSecondBuffer", AtracSetSecondBuffer);
     hle(A, "sceAtracGetInternalErrorInfo", AtracGetInternalErrorInfo);
+}
+
+template <typename F>
+void atrac_fields(Atrac &a, F &&f) {
+    f(a.used); f(a.codec); f(a.channels); f(a.block_align); f(a.samples_per_frame);
+    f(a.data_off); f(a.data_size); f(a.file_size); f(a.first_sample_offset); f(a.end_sample);
+    f(a.loop_start); f(a.loop_end); f(a.loop_num); f(a.current_sample);
+    f(a.buffer); f(a.buffer_size); f(a.all_loaded);
+    f(a.read_pos); f(a.write_pos); f(a.avail); f(a.file_write); f(a.ring_frame); f(a.warmup);
+}
+
+void atrac_save(StateWriter &w) {
+    w.section("AT3 ");
+    for (auto &a : g_atrac) {
+        atrac_fields(a, [&](auto &v) { w.pod(v); });
+        w.vec(a.extra);
+    }
+}
+
+void atrac_load(StateReader &r) {
+    r.section("AT3 ");
+    for (auto &a : g_atrac) {
+        a.free_decoder();
+        atrac_fields(a, [&](auto &v) { r.pod(v); });
+        r.vec(a.extra);
+        if (!a.used) continue;
+        int align = a.block_align;
+        if (a.codec == kAt3Plus) a.ctx3p = atrac3p_alloc(a.channels, &align);
+        else a.ctx3 = atrac3_alloc(a.channels, &align, a.extra.data(), static_cast<int>(a.extra.size()));
+        // The ring buffer itself is in guest RAM; only the decoder's overlap history is
+        // lost, which costs one slightly off frame (the game cannot be asked to refill).
+    }
 }
 
 } // namespace p2
