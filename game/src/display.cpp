@@ -174,8 +174,10 @@ void CtrlSetIdleCancelThreshold(AllegrexContext &c) { ret(c, 0u); }
 void DisplaySetMode(AllegrexContext &c) { g_display.mode = arg(c, 0); ret(c, 0u); }
 
 void DisplaySetFrameBuf(AllegrexContext &c) {
-    if (g_display.fb_addr != arg(c, 0))
+    if (g_display.fb_addr != arg(c, 0)) {
         LOG_T("display", "framebuffer %08x stride %u format %u", arg(c, 0), arg(c, 1), arg(c, 2));
+        ++K.perf_flips;
+    }
     g_display.fb_addr = arg(c, 0);
     if (arg(c, 1) != 0u) g_display.stride = arg(c, 1);
     g_display.format = arg(c, 2);

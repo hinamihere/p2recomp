@@ -196,10 +196,12 @@ void run_list(DisplayList &dl) {
 void process_lists() {
     if (g_processing) return;
     g_processing = true;
+    const u64 start = Kernel::now_us();
     for (auto &[id, dl] : g_lists) {
         if (dl.state == ListState::Queued || dl.state == ListState::Running) run_list(dl);
         if (dl.state == ListState::Stalled) break; // later lists wait behind a stalled one
     }
+    g_kernel.perf_gpu_us += Kernel::now_us() - start;
     g_processing = false;
 }
 

@@ -622,6 +622,7 @@ void Kernel::process_events(AllegrexContext &c) {
         ++vcount_;
         next_vblank_us_ += kVblankPeriodUs;
         on_vblank();
+        report_performance();
     }
     listener_deadline = 0u;
     for (auto &listener : event_listeners) listener(now);
@@ -644,7 +645,24 @@ void Kernel::idle(AllegrexContext &c) {
         const u64 wait = std::min<u64>(next - now, 2000u);
         if (wait > 200u) std::this_thread::sleep_for(std::chrono::microseconds(wait - 100u));
         else std::this_thread::yield();
+        idle_us_ += now_us() - now;
     }
+}
+
+void Kernel::report_performance() {
+    // Every 10 s: share of wall time the guest spent idle (headroom).
+    const u64 now = now_us();
+    if (perf_window_start_ == 0u) { perf_window_start_ = now; idle_us_ = 0u; return; }
+    const u64 elapsed = now - perf_window_start_;
+    if (elapsed < 10'000'000u) return;
+    const double secs = static_cast<double>(elapsed) / 1e6;
+    LOG_I("perf", "%.1f game fps, idle %.0f%%, gpu %.0f%% (vblank %llu)", static_cast<double>(perf_flips) / secs,
+          100.0 * static_cast<double>(idle_us_) / static_cast<double>(elapsed),
+          100.0 * static_cast<double>(perf_gpu_us) / static_cast<double>(elapsed), static_cast<unsigned long long>(vcount_));
+    perf_window_start_ = now;
+    idle_us_ = 0u;
+    perf_gpu_us = 0u;
+    perf_flips = 0u;
 }
 
 } // namespace p2

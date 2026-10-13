@@ -258,6 +258,10 @@ public:
     void nested_return(AllegrexContext &c);
     void thread_return(AllegrexContext &c);
 
+    // Performance counters, reported every 10 s.
+    u64 perf_gpu_us{};
+    u64 perf_flips{};
+
     // Set while an HLE import executes: saved contexts resume at $ra.
     bool in_hle_call{};
 
@@ -283,6 +287,9 @@ private:
     void expire_timeouts(u64 now);
     void on_vblank();
     u64 next_deadline() const;
+    void report_performance();
+    u64 idle_us_{};
+    u64 perf_window_start_{};
 
     s32 next_uid_{0x100};
     u64 seq_{};

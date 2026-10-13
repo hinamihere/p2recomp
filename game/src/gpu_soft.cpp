@@ -10,20 +10,33 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace p2::gpu {
 namespace {
 
-// P2_GE_TRACE=<vblank>: log every draw issued during that vblank to build/ge_trace.txt.
+// P2_GE_TRACE=<vblank>[-<vblank>]: log every draw issued in that range to build/ge_trace.txt.
 std::FILE *trace_file() {
-    static const long frame = [] { const char *e = std::getenv("P2_GE_TRACE"); return e ? std::atol(e) : -1L; }();
+    static long first = -1, last = -1;
+    static bool parsed = false;
+    if (!parsed) {
+        parsed = true;
+        if (const char *e = std::getenv("P2_GE_TRACE")) {
+            first = std::atol(e);
+            const char *dash = std::strchr(e, '-');
+            last = dash != nullptr ? std::atol(dash + 1) : first;
+        }
+    }
     static std::FILE *f = nullptr;
-    if (frame < 0 || static_cast<long>(g_kernel.vblank_count()) != frame) {
-        if (f != nullptr && static_cast<long>(g_kernel.vblank_count()) > frame) { std::fclose(f); f = nullptr; }
+    const long now = static_cast<long>(g_kernel.vblank_count());
+    if (first < 0 || now < first || now > last) {
+        if (f != nullptr && now > last) { std::fclose(f); f = nullptr; first = -1; }
         return nullptr;
     }
     if (f == nullptr) f = std::fopen("build/ge_trace.txt", "w");
+    static long last_frame = -1;
+    if (f != nullptr && now != last_frame) { std::fprintf(f, "=== vblank %ld\n", now); last_frame = now; }
     return f;
 }
 
@@ -963,6 +976,31 @@ u32 read_index(const VertexLayout &l, u32 index_addr, u32 i) {
     return m.load32(index_addr + i * 4u);
 }
 
+// Writes a decoded copy of the current texture (as the sampler sees it) to build/.
+void dump_texture(const State &s, const TexInfo &t) {
+    char name[96];
+    std::snprintf(name, sizeof(name), "build/tex_%08x_%ux%u_f%u.bmp", t.addr, t.w, t.h, t.fmt);
+    std::FILE *f = std::fopen(name, "wb");
+    if (f == nullptr) return;
+    const u32 w = std::min<u32>(t.w, 1024u), h = std::min<u32>(t.h, 1024u), image = w * h * 4u;
+    u8 header[54]{'B', 'M'};
+    auto put32 = [&](int at, u32 v) { for (int i = 0; i < 4; ++i) header[at + i] = static_cast<u8>(v >> (8 * i)); };
+    put32(2, 54u + image); put32(10, 54); put32(14, 40); put32(18, w); put32(22, h);
+    header[26] = 1; header[28] = 32; put32(34, image);
+    std::fwrite(header, 1, sizeof(header), f);
+    for (int y = static_cast<int>(h) - 1; y >= 0; --y) {
+        for (u32 x = 0; x < w; ++x) {
+            const Rgba c = fetch_texel(s, t, x, static_cast<u32>(y));
+            // Composite over magenta so transparent texels are visible.
+            const u32 a = c.a;
+            const u8 bgra[4] = {static_cast<u8>((c.b * a + 255u * (255u - a)) / 255u), static_cast<u8>((c.g * a) / 255u),
+                                static_cast<u8>((c.r * a + 255u * (255u - a)) / 255u), 255};
+            std::fwrite(bgra, 1, 4, f);
+        }
+    }
+    std::fclose(f);
+}
+
 } // namespace
 
 void draw_prim(State &s, u32 prim_type, u32 count) {
@@ -992,6 +1030,7 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
                      p.texinfo.addr, p.texinfo.w, p.texinfo.h, p.texinfo.bufw, p.texinfo.fmt, s.reg[CLUTFORMAT], s.reg[TEXFUNC],
                      p.blend ? 1 : 0, s.reg[BLENDMODE], s.reg[BLENDFIXEDA], s.reg[BLENDFIXEDB], p.alpha_test ? 1 : 0, s.reg[ALPHATEST],
                      p.z_test ? 1 : 0, s.reg[ZTEST], s.reg[CLEARMODE], p.sx0, p.sy0, p.sx1, p.sy1);
+        if (p.tex) dump_texture(s, p.texinfo);
         for (u32 i = 0; i < std::min<u32>(count, 8u); ++i) {
             const ScreenVertex &v = verts[i];
             std::fprintf(tf, "   v%u pos=(%.1f,%.1f,%.1f) uv=(%.3f,%.3f) col=(%.2f,%.2f,%.2f,%.2f)\n", i, v.x, v.y, v.z, v.u, v.v,
