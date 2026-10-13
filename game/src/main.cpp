@@ -9,6 +9,7 @@
 #include "io.hpp"
 #include "kernel.hpp"
 #include "sas.hpp"
+#include "savedata.hpp"
 
 #include "psprecomp/common.hpp"
 #include "psprecomp/elf32.hpp"
@@ -43,6 +44,7 @@ struct Options {
     int scale{2};
     bool headless{};
     u32 dump_every{};
+    std::string input_script;
 };
 
 Options parse_options(int argc, char **argv) {
@@ -56,6 +58,7 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--ms") o.ms = next();
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
+        else if (a == "--input") o.input_script = next();
         else if (a == "--dump-frames") o.dump_every = static_cast<u32>(std::atoi(next().c_str()));
         else if (a == "-v") g_log_level = LogLevel::Debug;
         else if (a == "-vv") g_log_level = LogLevel::Trace;
@@ -101,15 +104,18 @@ int run(int argc, char **argv) {
     r.register_function(kIdleAddr, [](Runtime &, AllegrexContext &c) { g_kernel.idle(c); }, "hle_idle");
 
     io_configure({opt.disc, opt.iso, opt.ms});
+    savedata_configure(opt.ms);
     register_kernel_imports();
     register_io_imports();
     register_display_imports();
     display_set_frame_dump(opt.dump_every);
+    if (!opt.input_script.empty()) display_set_input_script(opt.input_script);
     register_ge_imports();
     register_audio_imports();
     register_stub_imports();
     register_sas_imports();
     register_atrac_imports();
+    register_savedata_imports();
     report_unimplemented_imports();
 
     psprecomp::set_runtime_post_dispatch_hook(on_post_dispatch);

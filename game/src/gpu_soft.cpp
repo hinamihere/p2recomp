@@ -3,13 +3,29 @@
 // the framebuffer and block transfers all observe the same memory.
 #include "gpu_state.hpp"
 
+#include "kernel.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace p2::gpu {
 namespace {
+
+// P2_GE_TRACE=<vblank>: log every draw issued during that vblank to build/ge_trace.txt.
+std::FILE *trace_file() {
+    static const long frame = [] { const char *e = std::getenv("P2_GE_TRACE"); return e ? std::atol(e) : -1L; }();
+    static std::FILE *f = nullptr;
+    if (frame < 0 || static_cast<long>(g_kernel.vblank_count()) != frame) {
+        if (f != nullptr && static_cast<long>(g_kernel.vblank_count()) > frame) { std::fclose(f); f = nullptr; }
+        return nullptr;
+    }
+    if (f == nullptr) f = std::fopen("build/ge_trace.txt", "w");
+    return f;
+}
 
 struct VertexLayout {
     u32 size{};
@@ -482,12 +498,11 @@ TexInfo texture_info(const State &s) {
     return t;
 }
 
-Rgba sample(const State &s, const TexInfo &t, float u, float v, bool through) {
+Rgba sample(const State &s, const TexInfo &t, float u, float v, bool through, bool linear) {
     // Through mode: texel coordinates. Otherwise normalized.
     float fu = through ? u : u * static_cast<float>(t.w);
     float fv = through ? v : v * static_cast<float>(t.h);
     const bool clamp_u = (s.reg[TEXWRAP] & 1u) != 0u, clamp_v = (s.reg[TEXWRAP] & 0x100u) != 0u;
-    const bool linear = (s.reg[TEXFILTER] & 1u) != 0u && !through;
     auto wrap = [](int c, u32 size, bool clampit) {
         if (clampit) return static_cast<u32>(std::clamp(c, 0, static_cast<int>(size) - 1));
         return static_cast<u32>(c) & (size - 1u);
@@ -523,6 +538,9 @@ struct Pipeline {
     bool clear{}, clear_color{}, clear_alpha{}, clear_depth{};
     bool tex{}, through{};
     TexInfo texinfo{};
+    // TEXFILTER: bits 0-2 minify, bits 8-10 magnify (odd modes are linear).
+    bool linear_min{}, linear_mag{};
+    bool linear{}; // chosen per primitive from its texel/pixel ratio
     bool alpha_test{}, z_test{}, z_write{}, blend{}, stencil_test{}, color_test{}, logic_op{}, fog{};
     u32 alpha_func{}, alpha_ref{}, alpha_mask{};
     u32 z_func{};
@@ -573,6 +591,9 @@ void setup_pipeline(Pipeline &p, const State &s, bool through) {
     p.clear_depth = (s.reg[CLEARMODE] & 0x400u) != 0u;
     p.tex = !p.clear && (s.reg[TEXTUREMAPENABLE] & 1u) != 0u;
     if (p.tex) p.texinfo = texture_info(s);
+    p.linear_min = (s.reg[TEXFILTER] & 1u) != 0u;
+    p.linear_mag = (s.reg[TEXFILTER] & 0x100u) != 0u;
+    p.linear = p.linear_mag;
     p.alpha_test = (s.reg[ALPHATESTENABLE] & 1u) != 0u;
     p.alpha_func = s.reg[ALPHATEST] & 7u;
     p.alpha_ref = (s.reg[ALPHATEST] >> 8) & 0xFFu;
@@ -677,7 +698,7 @@ inline void fragment(const Pipeline &p, int x, int y, float z, int r, int g, int
     if (!p.through && (z < p.minz || z > p.maxz)) return;
     int s4[4] = {r, g, b, a};
     if (p.tex) {
-        const Rgba t = sample(*p.s, p.texinfo, u, v, p.through);
+        const Rgba t = sample(*p.s, p.texinfo, u, v, p.through, p.linear);
         const int tr = t.r, tg = t.g, tb = t.b, ta = t.a;
         switch (p.tex_func) {
         case 0: // modulate
@@ -786,10 +807,31 @@ inline void fragment(const Pipeline &p, int x, int y, float z, int r, int g, int
 
 // --- rasterization ------------------------------------------------------------------
 
-void raster_triangle(const Pipeline &p, const ScreenVertex &a, const ScreenVertex &b, const ScreenVertex &c, bool flat,
+// Texels covered per screen pixel along each axis decides minify vs magnify.
+void choose_filter(Pipeline &p, float texels_per_pixel) {
+    p.linear = texels_per_pixel > 1.0f ? p.linear_min : p.linear_mag;
+}
+
+float texel_scale(const Pipeline &p) {
+    return p.through ? 1.0f : static_cast<float>(std::max(p.texinfo.w, p.texinfo.h));
+}
+
+void raster_triangle(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b, const ScreenVertex &c, bool flat,
                      const float flat_color[4]) {
     const float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
     if (area == 0.f || !std::isfinite(area)) return;
+    if (p.tex) {
+        // Compare texture-space area with screen-space area (perspective ignored).
+        auto uv = [](const ScreenVertex &v, float &u, float &w) {
+            const float iw = v.invw != 0.f ? 1.f / v.invw : 1.f;
+            u = v.u * iw; w = v.v * iw;
+        };
+        float u0, v0, u1, v1, u2, v2;
+        uv(a, u0, v0); uv(b, u1, v1); uv(c, u2, v2);
+        const float sc = texel_scale(p);
+        const float tex_area = std::fabs((u1 - u0) * (v2 - v0) - (v1 - v0) * (u2 - u0)) * sc * sc;
+        choose_filter(p, std::sqrt(tex_area / std::fabs(area)));
+    }
     int minx = static_cast<int>(std::floor(std::min({a.x, b.x, c.x})));
     int maxx = static_cast<int>(std::ceil(std::max({a.x, b.x, c.x})));
     int miny = static_cast<int>(std::floor(std::min({a.y, b.y, c.y})));
@@ -832,7 +874,7 @@ void raster_triangle(const Pipeline &p, const ScreenVertex &a, const ScreenVerte
     }
 }
 
-void raster_sprite(const Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
+void raster_sprite(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
     // The second vertex supplies color and depth.
     const float x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x);
     const float y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
@@ -846,6 +888,7 @@ void raster_sprite(const Pipeline &p, const ScreenVertex &a, const ScreenVertex 
     if (ix0 > ix1 || iy0 > iy1) return;
     const float du = x1 > x0 ? (ub - ua) / (x1 - x0) : 0.f;
     const float dv = y1 > y0 ? (vb - va) / (y1 - y0) : 0.f;
+    if (p.tex) choose_filter(p, std::max(std::fabs(du), std::fabs(dv)) * texel_scale(p) * (a.invw != 0.f ? 1.f / a.invw : 1.f));
     const float wa = a.invw != 0.f ? 1.f / a.invw : 1.f;
     const int r = static_cast<int>(clamp01(b.color[0]) * 255.f + 0.5f), g = static_cast<int>(clamp01(b.color[1]) * 255.f + 0.5f);
     const int bl = static_cast<int>(clamp01(b.color[2]) * 255.f + 0.5f), al = static_cast<int>(clamp01(b.color[3]) * 255.f + 0.5f);
@@ -874,7 +917,7 @@ void raster_line(const Pipeline &p, const ScreenVertex &a, const ScreenVertex &b
 }
 
 // Clips a clip-space triangle against the near plane (z > -w) and emits screen triangles.
-void clip_and_draw(const State &s, const Pipeline &p, ScreenVertex v0, ScreenVertex v1, ScreenVertex v2, bool flat,
+void clip_and_draw(const State &s, Pipeline &p, ScreenVertex v0, ScreenVertex v1, ScreenVertex v2, bool flat,
                    const float flat_color[4], bool cull, bool cull_ccw) {
     ScreenVertex in[3] = {v0, v1, v2};
     ScreenVertex poly[8];
@@ -942,6 +985,19 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
 
     Pipeline p;
     setup_pipeline(p, s, l.through);
+    if (std::FILE *tf = trace_file()) {
+        std::fprintf(tf, "prim %u n=%u vtype=%06x fb=%08x/%u fmt=%u tex=%d addr=%08x %ux%u bufw=%u fmt=%u clut=%06x func=%05x "
+                         "blend=%d mode=%04x fixa=%06x fixb=%06x atest=%d %06x ztest=%d %x clear=%06x scissor=%d,%d-%d,%d\n",
+                     prim_type, count, s.reg[VERTEXTYPE], s.framebuf(), s.framebuf_stride(), s.framebuf_format(), p.tex ? 1 : 0,
+                     p.texinfo.addr, p.texinfo.w, p.texinfo.h, p.texinfo.bufw, p.texinfo.fmt, s.reg[CLUTFORMAT], s.reg[TEXFUNC],
+                     p.blend ? 1 : 0, s.reg[BLENDMODE], s.reg[BLENDFIXEDA], s.reg[BLENDFIXEDB], p.alpha_test ? 1 : 0, s.reg[ALPHATEST],
+                     p.z_test ? 1 : 0, s.reg[ZTEST], s.reg[CLEARMODE], p.sx0, p.sy0, p.sx1, p.sy1);
+        for (u32 i = 0; i < std::min<u32>(count, 8u); ++i) {
+            const ScreenVertex &v = verts[i];
+            std::fprintf(tf, "   v%u pos=(%.1f,%.1f,%.1f) uv=(%.3f,%.3f) col=(%.2f,%.2f,%.2f,%.2f)\n", i, v.x, v.y, v.z, v.u, v.v,
+                         v.color[0], v.color[1], v.color[2], v.color[3]);
+        }
+    }
     if (p.fb == nullptr) return;
     const bool flat = (s.reg[SHADEMODE] & 1u) == 0u;
     const bool cull = !l.through && (s.reg[CULLFACEENABLE] & 1u) != 0u && prim_type >= 3u && prim_type <= 5u;

@@ -280,6 +280,9 @@ void AtracDecodeData(AllegrexContext &c) {
     const u32 out = arg(c, 1), samples_ptr = arg(c, 2), finish_ptr = arg(c, 3), remain_ptr = arg(c, 4);
     auto &m = mem();
     auto finish_call = [&](u32 samples, u32 finish, u32 result) {
+        if (result != 0u || finish != 0u)
+            LOG_I("atrac", "decode id %u -> %08x finish=%u sample=%d/%d avail=%u file_write=%u remain=%d", arg(c, 0), result, finish,
+                  a->current_sample, a->end_sample, a->avail, a->file_write, remaining_frames(*a));
         if (samples_ptr != 0u) m.store32(samples_ptr, samples);
         if (finish_ptr != 0u) m.store32(finish_ptr, finish);
         if (remain_ptr != 0u) m.store32(remain_ptr, static_cast<u32>(remaining_frames(*a)));

@@ -56,7 +56,7 @@ struct Dialog {
     u32 status{};
     u32 param{};
 };
-Dialog g_msg, g_save, g_shot, g_install;
+Dialog g_msg, g_shot, g_install;
 
 void dialog_init(Dialog &d, AllegrexContext &c, const char *name) {
     note(name, c);
@@ -83,17 +83,6 @@ void MsgDialogInitStart(AllegrexContext &c) {
 void MsgDialogGetStatus(AllegrexContext &c) { dialog_status(g_msg, c); }
 void MsgDialogUpdate(AllegrexContext &c) { ret(c, 0u); }
 void MsgDialogShutdownStart(AllegrexContext &c) { dialog_shutdown(g_msg, c); }
-
-void SavedataInitStart(AllegrexContext &c) {
-    dialog_init(g_save, c, "sceUtilitySavedataInitStart");
-    const u32 p = g_save.param;
-    LOG_I("utility", "savedata mode=%u game=%s save=%s", mem().load32(p + 0x30u),
-          guest_string(p + 0x3Cu, 13).c_str(), guest_string(p + 0x4Cu, 20).c_str());
-    mem().store32(p + 0x1Cu, 0x80110307u); // no data
-}
-void SavedataGetStatus(AllegrexContext &c) { dialog_status(g_save, c); }
-void SavedataUpdate(AllegrexContext &c) { ret(c, 0u); }
-void SavedataShutdownStart(AllegrexContext &c) { dialog_shutdown(g_save, c); }
 
 void ScreenshotInitStart(AllegrexContext &c) { dialog_init(g_shot, c, "sceUtilityScreenshotInitStart"); }
 void ScreenshotGetStatus(AllegrexContext &c) { dialog_status(g_shot, c); }
@@ -150,10 +139,6 @@ void register_stub_imports() {
     hle(U, "sceUtilityMsgDialogGetStatus", MsgDialogGetStatus);
     hle(U, "sceUtilityMsgDialogUpdate", MsgDialogUpdate);
     hle(U, "sceUtilityMsgDialogShutdownStart", MsgDialogShutdownStart);
-    hle(U, "sceUtilitySavedataInitStart", SavedataInitStart);
-    hle(U, "sceUtilitySavedataGetStatus", SavedataGetStatus);
-    hle(U, "sceUtilitySavedataUpdate", SavedataUpdate);
-    hle(U, "sceUtilitySavedataShutdownStart", SavedataShutdownStart);
     hle(U, "sceUtilityScreenshotInitStart", ScreenshotInitStart);
     hle(U, "sceUtilityScreenshotGetStatus", ScreenshotGetStatus);
     hle(U, "sceUtilityScreenshotUpdate", ScreenshotUpdate);

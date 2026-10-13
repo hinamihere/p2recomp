@@ -107,11 +107,23 @@ void present_frame() {
 // --- controller ------------------------------------------------------------------
 
 u64 g_ctrl_samples{};      // incremented every vblank
+
+// Scripted input (--input): buttons held from a vblank for a number of frames.
+struct ScriptedPress { u64 start; u64 frames; u32 buttons; };
+std::vector<ScriptedPress> g_script;
+
+u32 scripted_buttons() {
+    const u64 now = g_kernel.vblank_count();
+    u32 b = 0u;
+    for (const auto &p : g_script)
+        if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
+    return b;
+}
 u64 g_ctrl_last_read{};
 
 void write_ctrl_data(u32 address, u32 count) {
     auto &m = mem();
-    const u32 buttons = host::buttons();
+    const u32 buttons = host::buttons() | scripted_buttons();
     for (u32 i = 0; i < count; ++i) {
         const u32 p = address + i * 16u;
         m.store32(p + 0u, static_cast<u32>(Kernel::now_us()));
@@ -185,6 +197,39 @@ void DisplayGetVcount(AllegrexContext &c) { ret(c, static_cast<u32>(K.vblank_cou
 void DisplayGetFramePerSec(AllegrexContext &c) { retf(c, 59.9400375f); ret(c, 0u); }
 
 } // namespace
+
+void display_set_input_script(const std::string &script) {
+    // Format: "<vblank>=<BUTTON>[+<BUTTON>...][:<frames>]" separated by commas.
+    static const struct { const char *name; u32 bit; } names[] = {
+        {"SELECT", 0x1u}, {"START", 0x8u}, {"UP", 0x10u}, {"RIGHT", 0x20u}, {"DOWN", 0x40u}, {"LEFT", 0x80u},
+        {"L", 0x100u}, {"R", 0x200u}, {"TRIANGLE", 0x1000u}, {"CIRCLE", 0x2000u}, {"CROSS", 0x4000u}, {"SQUARE", 0x8000u}};
+    std::size_t pos = 0;
+    while (pos < script.size()) {
+        std::size_t end = script.find(',', pos);
+        if (end == std::string::npos) end = script.size();
+        const std::string item = script.substr(pos, end - pos);
+        pos = end + 1;
+        const auto eq = item.find('=');
+        if (eq == std::string::npos) continue;
+        ScriptedPress press{std::stoull(item.substr(0, eq)), 6u, 0u};
+        std::string rest = item.substr(eq + 1);
+        if (const auto colon = rest.find(':'); colon != std::string::npos) {
+            press.frames = std::stoull(rest.substr(colon + 1));
+            rest = rest.substr(0, colon);
+        }
+        std::size_t bp = 0;
+        while (bp <= rest.size()) {
+            std::size_t plus = rest.find('+', bp);
+            if (plus == std::string::npos) plus = rest.size();
+            const std::string name = rest.substr(bp, plus - bp);
+            for (const auto &n : names)
+                if (name == n.name) press.buttons |= n.bit;
+            bp = plus + 1;
+        }
+        g_script.push_back(press);
+    }
+    LOG_I("display", "input script: %u presses", static_cast<unsigned>(g_script.size()));
+}
 
 void display_set_frame_dump(u32 every) {
     g_dump_every = every;
