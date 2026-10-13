@@ -31,12 +31,16 @@ add_library(at3_standalone STATIC ${AT3_SOURCES})
 target_include_directories(at3_standalone PUBLIC "${CMAKE_SOURCE_DIR}/game/third_party/at3_standalone")
 target_compile_options(at3_standalone PRIVATE -O2 -w)
 
+# FFmpeg (LGPL shared build) for H.264 movie decoding.
+set(FFMPEG_ROOT "${CMAKE_SOURCE_DIR}/tools/third_party/ffmpeg/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1" CACHE PATH "FFmpeg shared build root")
+
 file(GLOB P2_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/game/src/*.cpp")
 add_executable(p2 ${P2_SOURCES})
-target_include_directories(p2 PRIVATE "${SDL2_ROOT}/include")
-target_link_directories(p2 PRIVATE "${SDL2_ROOT}/lib")
-target_link_libraries(p2 PRIVATE p2_generated psprecomp_core at3_standalone SDL2)
+target_include_directories(p2 PRIVATE "${SDL2_ROOT}/include" "${FFMPEG_ROOT}/include")
+target_link_directories(p2 PRIVATE "${SDL2_ROOT}/lib" "${FFMPEG_ROOT}/lib")
+target_link_libraries(p2 PRIVATE p2_generated psprecomp_core at3_standalone SDL2 avcodec avutil)
 target_compile_options(p2 PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_options(p2 PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+file(GLOB FFMPEG_DLLS "${FFMPEG_ROOT}/bin/avcodec-*.dll" "${FFMPEG_ROOT}/bin/avutil-*.dll" "${FFMPEG_ROOT}/bin/swresample-*.dll")
 add_custom_command(TARGET p2 POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SDL2_ROOT}/bin/SDL2.dll" "$<TARGET_FILE_DIR:p2>")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SDL2_ROOT}/bin/SDL2.dll" ${FFMPEG_DLLS} "$<TARGET_FILE_DIR:p2>")

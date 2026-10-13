@@ -8,6 +8,7 @@
 #include "host.hpp"
 #include "io.hpp"
 #include "kernel.hpp"
+#include "mpeg.hpp"
 #include "sas.hpp"
 #include "savedata.hpp"
 
@@ -118,6 +119,7 @@ int run(int argc, char **argv) {
     register_sas_imports();
     register_atrac_imports();
     register_savedata_imports();
+    register_mpeg_imports();
     report_unimplemented_imports();
 
     psprecomp::set_runtime_post_dispatch_hook(on_post_dispatch);

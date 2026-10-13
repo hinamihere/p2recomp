@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 
@@ -623,6 +624,11 @@ void Kernel::process_events(AllegrexContext &c) {
         next_vblank_us_ += kVblankPeriodUs;
         on_vblank();
         report_performance();
+        static const u64 dump_at = [] { const char *e = std::getenv("P2_THREAD_DUMP"); return e ? std::strtoull(e, nullptr, 0) : 0ull; }();
+        if (dump_at != 0u && vcount_ == dump_at) {
+            LOG_E("thread", "thread dump at vblank %llu:", static_cast<unsigned long long>(vcount_));
+            dump_threads();
+        }
     }
     listener_deadline = 0u;
     for (auto &listener : event_listeners) listener(now);

@@ -21,36 +21,6 @@ void note(const char *name, AllegrexContext &c) {
         ret(c, value);                        \
     }
 
-// --- sceMpeg ---
-STUB(MpegInit, 0u)
-STUB(MpegFinish, 0u)
-STUB(MpegQueryMemSize, 0x10000u)
-STUB(MpegRingbufferQueryMemSize, 0x10000u)
-STUB(MpegRingbufferConstruct, 0u)
-STUB(MpegRingbufferDestruct, 0u)
-STUB(MpegRingbufferPut, 0u)
-STUB(MpegRingbufferAvailableSize, 0u)
-STUB(MpegCreate, 0u)
-STUB(MpegDelete, 0u)
-STUB(MpegQueryStreamOffset, 0x80618001u)
-STUB(MpegQueryStreamSize, 0x80618001u)
-STUB(MpegRegistStream, 0u)
-STUB(MpegUnRegistStream, 0u)
-STUB(MpegFlushAllStream, 0u)
-STUB(MpegMallocAvcEsBuf, 1u)
-STUB(MpegFreeAvcEsBuf, 0u)
-STUB(MpegInitAu, 0u)
-STUB(MpegQueryAtracEsSize, 0u)
-STUB(MpegGetAvcAu, 0x80618001u)
-STUB(MpegGetAtracAu, 0x80618001u)
-STUB(MpegAtracDecode, 0u)
-STUB(MpegAvcDecodeYCbCr, 0x80618001u)
-STUB(MpegAvcDecodeStopYCbCr, 0u)
-STUB(MpegAvcDecodeFlush, 0u)
-STUB(MpegAvcQueryYCbCrSize, 0u)
-STUB(MpegAvcInitYCbCr, 0u)
-STUB(MpegAvcCsc, 0u)
-
 // --- sceUtility dialogs: complete immediately ---
 struct Dialog {
     u32 status{};
@@ -104,36 +74,6 @@ STUB(UtilityUnloadModule, 0u)
 } // namespace
 
 void register_stub_imports() {
-    const char *M = "sceMpeg";
-    hle(M, "sceMpegInit", MpegInit);
-    hle(M, "sceMpegFinish", MpegFinish);
-    hle(M, "sceMpegQueryMemSize", MpegQueryMemSize);
-    hle(M, "sceMpegRingbufferQueryMemSize", MpegRingbufferQueryMemSize);
-    hle(M, "sceMpegRingbufferConstruct", MpegRingbufferConstruct);
-    hle(M, "sceMpegRingbufferDestruct", MpegRingbufferDestruct);
-    hle(M, "sceMpegRingbufferPut", MpegRingbufferPut);
-    hle(M, "sceMpegRingbufferAvailableSize", MpegRingbufferAvailableSize);
-    hle(M, "sceMpegCreate", MpegCreate);
-    hle(M, "sceMpegDelete", MpegDelete);
-    hle(M, "sceMpegQueryStreamOffset", MpegQueryStreamOffset);
-    hle(M, "sceMpegQueryStreamSize", MpegQueryStreamSize);
-    hle(M, "sceMpegRegistStream", MpegRegistStream);
-    hle(M, "sceMpegUnRegistStream", MpegUnRegistStream);
-    hle(M, "sceMpegFlushAllStream", MpegFlushAllStream);
-    hle(M, "sceMpegMallocAvcEsBuf", MpegMallocAvcEsBuf);
-    hle(M, "sceMpegFreeAvcEsBuf", MpegFreeAvcEsBuf);
-    hle(M, "sceMpegInitAu", MpegInitAu);
-    hle(M, "sceMpegQueryAtracEsSize", MpegQueryAtracEsSize);
-    hle(M, "sceMpegGetAvcAu", MpegGetAvcAu);
-    hle(M, "sceMpegGetAtracAu", MpegGetAtracAu);
-    hle(M, "sceMpegAtracDecode", MpegAtracDecode);
-    hle(M, "sceMpegAvcDecodeYCbCr", MpegAvcDecodeYCbCr);
-    hle(M, "sceMpegAvcDecodeStopYCbCr", MpegAvcDecodeStopYCbCr);
-    hle(M, "sceMpegAvcDecodeFlush", MpegAvcDecodeFlush);
-    hle(M, "sceMpegAvcQueryYCbCrSize", MpegAvcQueryYCbCrSize);
-    hle(M, "sceMpegAvcInitYCbCr", MpegAvcInitYCbCr);
-    hle(M, "sceMpegAvcCsc", MpegAvcCsc);
-
     const char *U = "sceUtility";
     hle(U, "sceUtilityMsgDialogInitStart", MsgDialogInitStart);
     hle(U, "sceUtilityMsgDialogGetStatus", MsgDialogGetStatus);

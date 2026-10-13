@@ -225,6 +225,13 @@ public:
     // Runs pending callbacks of the current thread. Returns true if a callback
     // was started (the context was switched to guest callback code).
     bool check_callbacks(AllegrexContext &c);
+    // Runs a guest function on the current thread from inside an HLE call (e.g.
+    // the MPEG ringbuffer read callback). `done` receives the guest v0 after the
+    // HLE call's context is restored, and may set that call's return value via
+    // rt().cpu() or start another guest call.
+    void call_guest(AllegrexContext &c, u32 entry, std::initializer_list<u32> args, std::function<void(u32)> done) {
+        begin_callback(c, *current_, entry, args, std::move(done));
+    }
 
     // --- interrupts ---
     void register_subintr(int intno, int sub, u32 handler, u32 arg);
