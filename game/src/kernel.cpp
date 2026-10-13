@@ -1,0 +1,650 @@
+#include "kernel.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <thread>
+
+namespace p2 {
+
+Kernel g_kernel;
+
+namespace {
+constexpr u64 kPreemptedSeqBase = 1ull << 62;
+u64 g_front_seq = kPreemptedSeqBase;
+u64 g_back_seq = kPreemptedSeqBase;
+
+u32 align_up(u32 v, u32 a) { return (v + a - 1u) & ~(a - 1u); }
+} // namespace
+
+const char *wait_type_name(WaitType type) {
+    switch (type) {
+    case WaitType::None: return "none";
+    case WaitType::Delay: return "delay";
+    case WaitType::Sema: return "sema";
+    case WaitType::EventFlag: return "eventflag";
+    case WaitType::ThreadEnd: return "threadend";
+    case WaitType::LwMutex: return "lwmutex";
+    case WaitType::Vblank: return "vblank";
+    case WaitType::Ctrl: return "ctrl";
+    case WaitType::Audio: return "audio";
+    case WaitType::AsyncIo: return "asyncio";
+    case WaitType::GeList: return "gelist";
+    case WaitType::GeDraw: return "gedraw";
+    case WaitType::Umd: return "umd";
+    case WaitType::Utility: return "utility";
+    }
+    return "?";
+}
+
+u64 Kernel::now_us() {
+    using namespace std::chrono;
+    static const auto start = steady_clock::now();
+    return static_cast<u64>(duration_cast<microseconds>(steady_clock::now() - start).count()) + 1'000'000u;
+}
+
+void Kernel::init(u32 module_gp, u32 module_end) {
+    module_gp_ = module_gp;
+    boot_us_ = now_us();
+    next_vblank_us_ = boot_us_ + kVblankPeriodUs;
+    free_.clear();
+    free_.push_back({align_up(module_end, 0x100u), kUserMemoryEnd});
+}
+
+// --- memory ------------------------------------------------------------------
+
+s32 Kernel::alloc_block(const std::string &name, int partition, int type, u32 size, u32 addr, u32 alignment) {
+    if (size == 0u) return static_cast<s32>(err::ILLEGAL_MEMSIZE);
+    if (partition != 2 && partition != 6 && partition != 5)
+        return static_cast<s32>(err::ILLEGAL_PARTITION);
+    size = align_up(size, 0x100u);
+    if (type == 3 || type == 4) {
+        alignment = addr;
+        if (alignment == 0u || (alignment & (alignment - 1u)) != 0u) return static_cast<s32>(err::ILLEGAL_ARGUMENT);
+    }
+    alignment = std::max<u32>(alignment, 0x100u);
+
+    u32 chosen = 0u;
+    bool found = false;
+    if (type == 2) {
+        const u32 want = addr & ~0xFFu;
+        for (const auto &r : free_) {
+            if (want >= r.start && want + size <= r.end) { chosen = want; found = true; break; }
+        }
+    } else if (type == 1 || type == 4) {
+        for (auto it = free_.rbegin(); it != free_.rend(); ++it) {
+            if (it->end - it->start < size) continue;
+            const u32 candidate = (it->end - size) & ~(alignment - 1u);
+            if (candidate >= it->start) { chosen = candidate; found = true; break; }
+        }
+    } else {
+        for (const auto &r : free_) {
+            const u32 candidate = align_up(r.start, alignment);
+            if (candidate >= r.start && candidate + size <= r.end && candidate + size > candidate) {
+                chosen = candidate; found = true; break;
+            }
+        }
+    }
+    if (!found) {
+        LOG_W("mem", "alloc '%s' size=%08x type=%d failed (max free %08x)", name.c_str(), size, type, max_free());
+        return static_cast<s32>(err::NO_MEMORY);
+    }
+    // Carve [chosen, chosen+size) out of its free range.
+    for (std::size_t i = 0; i < free_.size(); ++i) {
+        FreeRange r = free_[i];
+        if (chosen < r.start || chosen + size > r.end) continue;
+        free_.erase(free_.begin() + static_cast<std::ptrdiff_t>(i));
+        if (chosen + size < r.end) free_.insert(free_.begin() + static_cast<std::ptrdiff_t>(i), FreeRange{chosen + size, r.end});
+        if (r.start < chosen) free_.insert(free_.begin() + static_cast<std::ptrdiff_t>(i), FreeRange{r.start, chosen});
+        break;
+    }
+    const s32 uid = new_uid();
+    blocks_[uid] = MemoryBlock{uid, name, chosen, size, partition};
+    LOG_D("mem", "alloc '%s' -> uid=%x addr=%08x size=%08x", name.c_str(), uid, chosen, size);
+    return uid;
+}
+
+u32 Kernel::free_block(s32 uid) {
+    auto it = blocks_.find(uid);
+    if (it == blocks_.end()) return err::UNKNOWN_UID;
+    FreeRange r{it->second.address, it->second.address + it->second.size};
+    blocks_.erase(it);
+    auto pos = std::lower_bound(free_.begin(), free_.end(), r, [](const FreeRange &a, const FreeRange &b) { return a.start < b.start; });
+    pos = free_.insert(pos, r);
+    // Merge neighbours.
+    std::size_t i = static_cast<std::size_t>(pos - free_.begin());
+    if (i + 1 < free_.size() && free_[i].end == free_[i + 1].start) {
+        free_[i].end = free_[i + 1].end;
+        free_.erase(free_.begin() + static_cast<std::ptrdiff_t>(i + 1));
+    }
+    if (i > 0 && free_[i - 1].end == free_[i].start) {
+        free_[i - 1].end = free_[i].end;
+        free_.erase(free_.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    return 0u;
+}
+
+MemoryBlock *Kernel::block(s32 uid) {
+    auto it = blocks_.find(uid);
+    return it != blocks_.end() ? &it->second : nullptr;
+}
+
+u32 Kernel::max_free() const {
+    u32 best = 0u;
+    for (const auto &r : free_) best = std::max(best, r.end - r.start);
+    return best;
+}
+
+u32 Kernel::total_free() const {
+    u32 total = 0u;
+    for (const auto &r : free_) total += r.end - r.start;
+    return total;
+}
+
+// --- threads -----------------------------------------------------------------
+
+Thread *Kernel::thread(s32 uid) {
+    if (uid == 0) return current_;
+    auto it = threads_.find(uid);
+    if (it == threads_.end() || it->second->state == ThreadState::Dead) return nullptr;
+    return it->second.get();
+}
+
+void Kernel::set_identity() {
+    if (interrupt_depth_ > 0) return; // identity is managed by start_interrupt/nested_return
+    if (idle_ || current_ == nullptr) psprecomp::set_runtime_thread_identity(0, "idle");
+    else psprecomp::set_runtime_thread_identity(current_->uid, current_->name);
+}
+
+s32 Kernel::create_thread(const std::string &name, u32 entry, s32 priority, u32 stack_size, u32 attr) {
+    if (priority < 0x08 || priority > 0x77) {
+        LOG_W("thread", "create '%s': clamping priority %x", name.c_str(), priority);
+        priority = std::clamp(priority, 0x08, 0x77);
+    }
+    if (stack_size < 0x200u) return static_cast<s32>(err::ILLEGAL_STACK_SIZE);
+    stack_size = align_up(stack_size, 0x100u);
+    const s32 block = alloc_block("stack:" + name, 2, 1, stack_size, 0u);
+    if (block < 0) return block;
+    auto t = std::make_unique<Thread>();
+    t->uid = new_uid();
+    t->name = name;
+    t->entry = entry;
+    t->attr = attr;
+    t->gp = module_gp_;
+    t->init_priority = priority;
+    t->priority = priority;
+    t->stack_block = static_cast<u32>(block);
+    t->stack_bottom = blocks_[block].address;
+    t->stack_size = stack_size;
+    t->state = ThreadState::Dormant;
+    const s32 uid = t->uid;
+    LOG_I("thread", "create '%s' uid=%x entry=%08x prio=%x stack=%08x+%x attr=%x", name.c_str(), uid, entry,
+          priority, t->stack_bottom, stack_size, attr);
+    threads_[uid] = std::move(t);
+    return uid;
+}
+
+namespace {
+void reset_context(Thread &t) {
+    t.ctx = AllegrexContext{};
+    t.ctx.vfpu_ctrl[0] = 0xE4u;
+    t.ctx.vfpu_ctrl[1] = 0xE4u;
+    t.ctx.vfpu_ctrl[2] = 0u;
+    t.ctx.vfpu_ctrl[3] = 0x3Fu;
+    t.ctx.vfpu_ctrl[8] = 0x3F800001u; // VRNG seeds, as on hardware
+    t.ctx.vfpu_ctrl[9] = 0x3F800002u;
+    t.ctx.vfpu_ctrl[10] = 0x3F800003u;
+    t.ctx.vfpu_ctrl[11] = 0x3F800004u;
+    t.ctx.vfpu_ctrl[12] = 0x3F800005u;
+    t.ctx.vfpu_ctrl[13] = 0x3F800006u;
+    t.ctx.vfpu_ctrl[14] = 0x3F800007u;
+    t.ctx.vfpu_ctrl[15] = 0x3F800008u;
+}
+} // namespace
+
+static void setup_thread_stack(Thread &t, const u8 *args, u32 arg_len) {
+    auto &m = mem();
+    reset_context(t);
+    if ((t.attr & 0x00100000u) == 0u) {
+        for (u32 off = 0; off < t.stack_size; off += 4u) m.store32(t.stack_bottom + off, 0xFFFFFFFFu);
+    }
+    u32 sp = t.stack_bottom + t.stack_size;
+    sp -= 256u;
+    const u32 k0 = sp;
+    for (u32 off = 0; off < 0x100u; off += 4u) m.store32(k0 + off, 0u);
+    m.store32(k0 + 0xc0u, static_cast<u32>(t.uid));
+    m.store32(k0 + 0xc8u, t.stack_bottom);
+    m.store32(k0 + 0xf8u, 0xFFFFFFFFu);
+    m.store32(k0 + 0xfcu, 0xFFFFFFFFu);
+    m.store32(t.stack_bottom, static_cast<u32>(t.uid));
+    t.ctx.gpr[26] = k0;
+    if (args != nullptr && arg_len > 0u) {
+        sp -= (arg_len + 0xFu) & ~0xFu;
+        m.copy_in(sp, std::span<const u8>(args, arg_len));
+        t.ctx.gpr[4] = arg_len;
+        t.ctx.gpr[5] = sp;
+    }
+    sp -= 64u;
+    t.ctx.gpr[29] = sp;
+    t.ctx.gpr[30] = sp;
+    t.ctx.gpr[31] = kThreadReturnAddr;
+    t.ctx.gpr[28] = t.gp;
+    t.ctx.pc = t.entry;
+}
+
+u32 Kernel::start_thread(AllegrexContext &c, s32 uid, u32 arg_len, u32 arg_ptr) {
+    Thread *t = thread(uid);
+    if (t == nullptr) return err::UNKNOWN_THID;
+    if (t->state != ThreadState::Dormant) return err::NOT_DORMANT;
+    std::vector<u8> args;
+    if (arg_ptr != 0u && arg_len > 0u && valid_range(arg_ptr, arg_len)) {
+        args.resize(arg_len);
+        mem().copy_out(arg_ptr, args);
+    }
+    t->priority = t->init_priority;
+    setup_thread_stack(*t, args.empty() ? nullptr : args.data(), static_cast<u32>(args.size()));
+    LOG_I("thread", "start '%s' uid=%x args=%u@%08x", t->name.c_str(), uid, arg_len, arg_ptr);
+    make_ready(*t);
+    ret(c, 0u);
+    reschedule(c);
+    return 0u;
+}
+
+void Kernel::boot_main_thread(u32 entry, u32 priority, u32 stack_size, u32 attr, const std::string &argument) {
+    const s32 uid = create_thread("root", entry, static_cast<s32>(priority), stack_size, attr);
+    Thread *t = thread(uid);
+    std::vector<u8> args(argument.begin(), argument.end());
+    args.push_back(0u);
+    setup_thread_stack(*t, args.data(), static_cast<u32>(args.size()));
+    make_ready(*t);
+    AllegrexContext &c = rt().cpu();
+    idle_ = true;
+    current_ = nullptr;
+    switch_to(c, best_ready(), false);
+}
+
+void Kernel::make_ready(Thread &t) {
+    t.state = ThreadState::Ready;
+    t.ready_seq = ++g_back_seq;
+}
+
+Thread *Kernel::best_ready() {
+    Thread *best = nullptr;
+    for (auto &[uid, t] : threads_) {
+        if (t->state != ThreadState::Ready) continue;
+        if (best == nullptr || t->priority < best->priority ||
+            (t->priority == best->priority && t->ready_seq < best->ready_seq))
+            best = t.get();
+    }
+    return best;
+}
+
+void Kernel::save_current(AllegrexContext &c) {
+    if (idle_ || current_ == nullptr) return;
+    current_->ctx = c;
+    if (in_hle_call) current_->ctx.pc = c.gpr[31];
+}
+
+void Kernel::switch_to(AllegrexContext &c, Thread *next, bool save_old) {
+    if (!idle_ && next == current_ && current_ != nullptr) {
+        current_->state = ThreadState::Running;
+        return;
+    }
+    if (save_old) save_current(c);
+    if (next != nullptr) {
+        LOG_T("sched", "switch -> '%s' uid=%x pc=%08x", next->name.c_str(), next->uid, next->ctx.pc);
+        c = next->ctx;
+        current_ = next;
+        next->state = ThreadState::Running;
+        idle_ = false;
+    } else {
+        LOG_T("sched", "switch -> idle");
+        AllegrexContext idle_ctx{};
+        idle_ctx.pc = kIdleAddr;
+        idle_ctx.gpr[29] = kInterruptStackTop - 0x400u;
+        c = idle_ctx;
+        current_ = nullptr;
+        idle_ = true;
+    }
+    set_identity();
+}
+
+void Kernel::reschedule(AllegrexContext &c) {
+    if (interrupt_depth_ > 0) return;
+    Thread *best = best_ready();
+    if (idle_ || current_ == nullptr) {
+        if (best != nullptr) switch_to(c, best, false);
+        return;
+    }
+    if (current_->state != ThreadState::Running) {
+        // The current thread stopped running without switching; pick another.
+        switch_to(c, best, current_->state == ThreadState::Ready);
+        return;
+    }
+    if (best != nullptr && best->priority < current_->priority) {
+        Thread *old = current_;
+        save_current(c);
+        old->state = ThreadState::Ready;
+        old->ready_seq = --g_front_seq; // preempted threads keep their turn
+        switch_to(c, best, false);
+    }
+}
+
+void Kernel::yield_current(AllegrexContext &c) {
+    if (current_ == nullptr || idle_ || interrupt_depth_ > 0) return;
+    Thread *old = current_;
+    save_current(c);
+    make_ready(*old);
+    switch_to(c, best_ready(), false);
+}
+
+void Kernel::change_priority(AllegrexContext &c, s32 uid, s32 priority) {
+    Thread *t = thread(uid);
+    if (t == nullptr) return;
+    t->priority = priority;
+    if (t->state == ThreadState::Ready) t->ready_seq = ++g_back_seq;
+    reschedule(c);
+}
+
+void Kernel::wait_current(AllegrexContext &c, WaitType type, s32 id, u64 deadline, u32 timeout_ptr, bool cb) {
+    if (current_ == nullptr || idle_ || interrupt_depth_ > 0) {
+        LOG_E("thread", "wait %s outside of a thread context", wait_type_name(type));
+        return;
+    }
+    Thread *t = current_;
+    t->wait = type;
+    t->wait_id = id;
+    t->deadline = deadline;
+    t->timeout_ptr = timeout_ptr;
+    t->wait_cb = cb;
+    t->wait_seq = ++seq_;
+    save_current(c);
+    t->state = ThreadState::Waiting;
+    LOG_T("sched", "'%s' waits %s id=%x deadline=%llu", t->name.c_str(), wait_type_name(type), id,
+          static_cast<unsigned long long>(deadline));
+    switch_to(c, best_ready(), false);
+}
+
+void Kernel::wake(Thread &t, u32 result) {
+    if (t.state != ThreadState::Waiting) return;
+    t.ctx.gpr[2] = result;
+    if (t.timeout_ptr != 0u && t.deadline != 0u) {
+        const u64 now = now_us();
+        mem().store32(t.timeout_ptr, t.deadline > now ? static_cast<u32>(t.deadline - now) : 0u);
+    }
+    t.wait = WaitType::None;
+    t.deadline = 0u;
+    t.timeout_ptr = 0u;
+    make_ready(t);
+}
+
+std::vector<Thread *> Kernel::waiters(WaitType type, s32 id, bool priority_order) {
+    std::vector<Thread *> out;
+    for (auto &[uid, t] : threads_)
+        if (t->state == ThreadState::Waiting && t->wait == type && t->wait_id == id) out.push_back(t.get());
+    std::sort(out.begin(), out.end(), [priority_order](const Thread *a, const Thread *b) {
+        if (priority_order && a->priority != b->priority) return a->priority < b->priority;
+        return a->wait_seq < b->wait_seq;
+    });
+    return out;
+}
+
+void Kernel::exit_current_thread(AllegrexContext &c, u32 status, bool delete_it) {
+    Thread *t = current_;
+    if (t == nullptr || idle_) return;
+    LOG_I("thread", "exit '%s' uid=%x status=%x%s", t->name.c_str(), t->uid, status, delete_it ? " (delete)" : "");
+    t->exit_status = status;
+    t->state = ThreadState::Dormant;
+    for (Thread *w : waiters(WaitType::ThreadEnd, t->uid, false)) wake(*w, status);
+    if (delete_it) {
+        if (t->stack_block != 0u) free_block(static_cast<s32>(t->stack_block));
+        t->stack_block = 0u;
+        t->state = ThreadState::Dead;
+    }
+    switch_to(c, best_ready(), false);
+}
+
+u32 Kernel::terminate_thread(AllegrexContext &c, s32 uid, bool delete_it) {
+    Thread *t = thread(uid);
+    if (t == nullptr) return err::UNKNOWN_THID;
+    if (t == current_) return err::ILLEGAL_THID;
+    LOG_I("thread", "terminate '%s' uid=%x%s", t->name.c_str(), t->uid, delete_it ? " (delete)" : "");
+    t->state = ThreadState::Dormant;
+    t->wait = WaitType::None;
+    t->exit_status = err::THREAD_TERMINATED_VALUE;
+    for (Thread *w : waiters(WaitType::ThreadEnd, t->uid, false)) wake(*w, err::THREAD_TERMINATED_VALUE);
+    if (delete_it) {
+        if (t->stack_block != 0u) free_block(static_cast<s32>(t->stack_block));
+        t->stack_block = 0u;
+        t->state = ThreadState::Dead;
+    }
+    ret(c, 0u);
+    reschedule(c);
+    return 0u;
+}
+
+u32 Kernel::delete_thread(s32 uid) {
+    Thread *t = thread(uid);
+    if (t == nullptr) return err::UNKNOWN_THID;
+    if (t->state != ThreadState::Dormant) return err::NOT_DORMANT;
+    if (t->stack_block != 0u) free_block(static_cast<s32>(t->stack_block));
+    t->stack_block = 0u;
+    t->state = ThreadState::Dead;
+    return 0u;
+}
+
+void Kernel::thread_return(AllegrexContext &c) {
+    exit_current_thread(c, c.gpr[2], false);
+}
+
+void Kernel::dump_threads() const {
+    for (const auto &[uid, t] : threads_) {
+        static const char *states[] = {"ready", "running", "waiting", "dormant", "dead"};
+        LOG_E("thread", "  uid=%x '%s' prio=%x %s wait=%s id=%x pc=%08x ra=%08x", uid, t->name.c_str(), t->priority,
+              states[static_cast<int>(t->state)], wait_type_name(t->wait), t->wait_id, t->ctx.pc, t->ctx.gpr[31]);
+    }
+}
+
+// --- callbacks ---------------------------------------------------------------
+
+s32 Kernel::create_callback(const std::string &name, u32 entry, u32 common) {
+    const s32 uid = new_uid();
+    callbacks[uid] = Callback{uid, name, current_uid(), entry, common, 0, 0};
+    LOG_I("thread", "create callback '%s' uid=%x entry=%08x", name.c_str(), uid, entry);
+    return uid;
+}
+
+u32 Kernel::delete_callback(s32 uid) {
+    return callbacks.erase(uid) != 0u ? 0u : err::UNKNOWN_CBID;
+}
+
+void Kernel::notify_callback(s32 uid, s32 arg) {
+    auto it = callbacks.find(uid);
+    if (it == callbacks.end()) return;
+    it->second.notify_count++;
+    it->second.notify_arg = arg;
+}
+
+void Kernel::begin_callback(AllegrexContext &c, Thread &t, u32 entry, std::initializer_list<u32> args,
+                            std::function<void(u32)> done) {
+    auto frame = std::make_unique<CallbackFrame>();
+    frame->saved = c;
+    if (in_hle_call) frame->saved.pc = c.gpr[31];
+    frame->done = std::move(done);
+    t.callback_frames.push_back(std::move(frame));
+    int i = 0;
+    for (u32 a : args) c.gpr[4 + i++] = a;
+    c.gpr[31] = kNestedReturnAddr;
+    c.gpr[29] = (c.gpr[29] - 0x100u) & ~0xFu;
+    c.gpr[28] = module_gp_;
+    c.pc = entry;
+}
+
+bool Kernel::check_callbacks(AllegrexContext &c) {
+    Thread *t = current_;
+    if (t == nullptr || idle_ || interrupt_depth_ > 0) return false;
+    for (auto &[uid, cb] : callbacks) {
+        if (cb.thread_uid != t->uid || cb.notify_count <= 0) continue;
+        const s32 count = cb.notify_count;
+        cb.notify_count = 0;
+        const s32 cbuid = uid;
+        LOG_I("thread", "run callback '%s' on '%s'", cb.name.c_str(), t->name.c_str());
+        begin_callback(c, *t, cb.entry, {static_cast<u32>(count), static_cast<u32>(cb.notify_arg), cb.common},
+                       [this, cbuid](u32 v0) { if (v0 != 0u) delete_callback(cbuid); });
+        return true;
+    }
+    return false;
+}
+
+// --- interrupts --------------------------------------------------------------
+
+void Kernel::register_subintr(int intno, int sub, u32 handler, u32 arg) {
+    subintrs_[{intno, sub}] = SubIntr{handler, arg, false};
+    LOG_I("intr", "register subintr %d/%d handler=%08x arg=%08x", intno, sub, handler, arg);
+}
+
+void Kernel::release_subintr(int intno, int sub) { subintrs_.erase({intno, sub}); }
+
+void Kernel::enable_subintr(int intno, int sub, bool enabled) {
+    auto it = subintrs_.find({intno, sub});
+    if (it != subintrs_.end()) it->second.enabled = enabled;
+}
+
+void Kernel::queue_interrupt(GuestCall call) { pending_interrupts_.push_back(std::move(call)); }
+
+void Kernel::start_interrupt(AllegrexContext &c) {
+    GuestCall call = std::move(pending_interrupts_.front());
+    pending_interrupts_.pop_front();
+    InterruptFrame frame;
+    frame.saved = c;
+    if (in_hle_call) frame.saved.pc = c.gpr[31];
+    frame.done = std::move(call.done);
+    frame.saved_current = current_;
+    frame.saved_idle = idle_;
+    interrupt_frames_.push_back(std::move(frame));
+    ++interrupt_depth_;
+    for (int i = 0; i < 4; ++i) c.gpr[4 + i] = call.args[i];
+    c.gpr[31] = kNestedReturnAddr;
+    c.gpr[29] = kInterruptStackTop - 0x40u;
+    c.gpr[28] = module_gp_;
+    c.pc = call.entry;
+    psprecomp::set_runtime_thread_identity(nested_identity_--, call.what);
+    LOG_T("intr", "start %s at %08x", call.what, call.entry);
+}
+
+void Kernel::nested_return(AllegrexContext &c) {
+    const u32 v0 = c.gpr[2];
+    if (interrupt_depth_ > 0) {
+        InterruptFrame frame = std::move(interrupt_frames_.back());
+        interrupt_frames_.pop_back();
+        --interrupt_depth_;
+        c = frame.saved;
+        current_ = frame.saved_current;
+        idle_ = frame.saved_idle;
+        set_identity();
+        if (frame.done) frame.done(v0);
+        if (interrupt_depth_ == 0 && interrupts_enabled_ && !pending_interrupts_.empty()) start_interrupt(c);
+        else reschedule(c);
+        return;
+    }
+    Thread *t = current_;
+    if (t == nullptr || t->callback_frames.empty()) {
+        rt().stop("nested return with no active frame");
+        return;
+    }
+    auto frame = std::move(t->callback_frames.back());
+    t->callback_frames.pop_back();
+    c = frame->saved;
+    if (frame->done) frame->done(v0);
+    if (!check_callbacks(c)) reschedule(c);
+}
+
+// --- event loop --------------------------------------------------------------
+
+void Kernel::expire_timeouts(u64 now) {
+    for (auto &[uid, t] : threads_) {
+        if (t->state != ThreadState::Waiting || t->deadline == 0u || t->deadline > now) continue;
+        const bool is_delay = t->wait == WaitType::Delay;
+        if (t->wait == WaitType::LwMutex) {
+            auto it = lw_mutexes.find(t->wait_id);
+            if (it != lw_mutexes.end()) {
+                const u32 wa = it->second.workarea;
+                mem().store32(wa + 12u, mem().load32(wa + 12u) - 1u);
+            }
+        }
+        if (t->timeout_ptr != 0u) mem().store32(t->timeout_ptr, 0u);
+        t->timeout_ptr = 0u;
+        wake(*t, is_delay ? 0u : err::WAIT_TIMEOUT);
+    }
+}
+
+void Kernel::on_vblank() {
+    for (auto &[uid, t] : threads_) {
+        if (t->state != ThreadState::Waiting) continue;
+        if (t->wait == WaitType::Vblank) {
+            if (t->wait_value[0] <= 1u) wake(*t, 0u);
+            else --t->wait_value[0];
+        }
+    }
+    for (auto &listener : vblank_listeners) listener();
+    for (auto &[key, sub] : subintrs_) {
+        if (key.first != kVblankInterrupt || !sub.enabled) continue;
+        GuestCall call;
+        call.entry = sub.handler;
+        call.args[0] = static_cast<u32>(key.second);
+        call.args[1] = sub.arg;
+        call.what = "vblank";
+        queue_interrupt(std::move(call));
+    }
+}
+
+u64 Kernel::next_deadline() const {
+    u64 next = next_vblank_us_;
+    for (const auto &[uid, t] : threads_)
+        if (t->state == ThreadState::Waiting && t->deadline != 0u) next = std::min(next, t->deadline);
+    if (listener_deadline != 0u) next = std::min(next, listener_deadline);
+    return next;
+}
+
+void Kernel::process_events(AllegrexContext &c) {
+    static bool processing = false;
+    if (processing) return;
+    processing = true;
+    const u64 now = now_us();
+    expire_timeouts(now);
+    if (now >= next_vblank_us_) {
+        const u64 missed = (now - next_vblank_us_) / kVblankPeriodUs;
+        if (missed > 4u) {
+            // Fell far behind (debugger, long load): drop the backlog.
+            vcount_ += missed;
+            next_vblank_us_ += missed * kVblankPeriodUs;
+        }
+        ++vcount_;
+        next_vblank_us_ += kVblankPeriodUs;
+        on_vblank();
+    }
+    listener_deadline = 0u;
+    for (auto &listener : event_listeners) listener(now);
+    if (interrupt_depth_ == 0 && interrupts_enabled_ && !pending_interrupts_.empty()) start_interrupt(c);
+    else reschedule(c);
+    processing = false;
+}
+
+void Kernel::on_dispatch(AllegrexContext &c) {
+    if ((++dispatch_counter_ & 31u) != 0u) return;
+    process_events(c);
+}
+
+void Kernel::idle(AllegrexContext &c) {
+    process_events(c);
+    if (c.pc != kIdleAddr) return;
+    const u64 now = now_us();
+    const u64 next = next_deadline();
+    if (next > now) {
+        const u64 wait = std::min<u64>(next - now, 2000u);
+        if (wait > 200u) std::this_thread::sleep_for(std::chrono::microseconds(wait - 100u));
+        else std::this_thread::yield();
+    }
+}
+
+} // namespace p2
