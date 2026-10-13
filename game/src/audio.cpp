@@ -35,6 +35,7 @@ struct Channel {
 std::mutex g_mutex;
 Channel g_channels[kChannels];
 std::FILE *g_dump{}; // raw s16 stereo 44.1 kHz capture of the final mix
+bool g_device{};     // an output device consumes the queues (else they drain in game time)
 
 void mix(s16 *out, int frames) {
     std::lock_guard lock(g_mutex);
@@ -84,12 +85,13 @@ void enqueue(Channel &ch, u32 buffer, s32 lvol, s32 rvol) {
 }
 
 // Threads blocked on output resume once their channel holds at most one buffer.
-// While fast-forwarding the host cannot play audio at the game's pace, so queued
-// samples are discarded at 44.1 kHz of *virtual* time. Blocking output therefore
-// still paces the producing threads exactly as playback would.
+// While fast-forwarding (or without an output device, e.g. --headless) nothing plays
+// the queues at the game's pace, so queued samples are discarded at 44.1 kHz of
+// *virtual* time. Blocking output therefore still paces the producing threads exactly
+// as playback would.
 void drain_virtual(u64 now) {
     static u64 last = 0;
-    if (!K.turbo()) { last = 0; return; }
+    if (g_device && !K.turbo()) { last = 0; return; }
     if (last == 0u) { last = now; return; }
     const u64 frames = (now - last) * 44100u / 1000000u;
     if (frames == 0u) return;
@@ -202,7 +204,7 @@ void audio_dump_to(const std::string &path) {
 }
 
 void audio_start() {
-    host::start_audio(mix, 44100);
+    g_device = host::start_audio(mix, 44100);
 }
 
 void register_audio_imports() {

@@ -658,6 +658,8 @@ void Kernel::on_dispatch(AllegrexContext &c) {
 }
 
 void Kernel::idle(AllegrexContext &c) {
+    // With every thread waiting, idle is the only boundary outside interrupts.
+    if (savestate_service()) return;
     process_events(c);
     if (c.pc != kIdleAddr) return;
     const u64 now = now_us();
@@ -699,7 +701,9 @@ void Kernel::report_performance() {
 
 std::string Kernel::save_blocker() const {
     if (in_hle_call) return "inside an HLE call";
-    if (interrupt_depth_ > 0 || !pending_interrupts_.empty()) return "an interrupt is in progress";
+    if (interrupt_depth_ > 0 || !pending_interrupts_.empty())
+        return "an interrupt is in progress (depth " + std::to_string(interrupt_depth_) + ", " + std::to_string(pending_interrupts_.size()) +
+               " pending, " + (interrupts_enabled_ ? "enabled" : "disabled") + ")";
     for (const auto &[uid, t] : threads_)
         if (!t->callback_frames.empty()) return "a callback is running";
     return {};
@@ -888,6 +892,11 @@ void Kernel::load(StateReader &r, AllegrexContext &live) {
 
 } // namespace p2
 
-void p2::kernel_save(StateWriter &w) { g_kernel.save(w, rt().cpu()); }
+void p2::kernel_save(StateWriter &w) {
+    AllegrexContext live = rt().cpu();
+    // Taken right after an import returned: the thread continues at the return address.
+    if (savestate_at_hle_return()) live.pc = live.gpr[31];
+    g_kernel.save(w, live);
+}
 void p2::kernel_load(StateReader &r) { g_kernel.load(r, rt().cpu()); }
 std::string p2::kernel_save_blocker() { return g_kernel.save_blocker(); }

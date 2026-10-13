@@ -32,7 +32,13 @@ namespace {
 std::unique_ptr<Runtime> g_runtime;
 
 void on_post_dispatch(Runtime &, AllegrexContext &c, std::uint32_t, std::int32_t) { g_kernel.on_dispatch(c); }
-void on_starvation(Runtime &, AllegrexContext &c) { g_kernel.process_events(c); }
+void on_starvation(Runtime &, AllegrexContext &c) {
+    // Busy-waiting code (e.g. polling the vcount) only reaches the dispatcher here, so
+    // savestates are serviced at this boundary too. A load changes the thread identity,
+    // which unwinds the nested native frames just like a thread switch.
+    if (savestate_service()) return;
+    g_kernel.process_events(c);
+}
 void on_break(Runtime &r, AllegrexContext &c, std::uint32_t pc, std::uint32_t code) {
     LOG_E("cpu", "guest break %u at %08x (ra=%08x)", code, pc, c.gpr[31]);
     r.stop("guest break");
@@ -51,6 +57,8 @@ struct Options {
     u64 save_state_at{};
     int save_state_slot{1};
     int load_state{-1};
+    u64 load_state_at{};
+    int load_state_at_slot{1};
     u32 dump_every{};
     std::string input_script;
     std::string audio_dump;
@@ -76,6 +84,13 @@ Options parse_options(int argc, char **argv) {
             if (end != nullptr && *end == ':') o.save_state_slot = std::atoi(end + 1);
         }
         else if (a == "--load-state") o.load_state = std::atoi(next().c_str());
+        else if (a == "--load-state-at") {
+            // <vblank>[:slot], like pressing F8 at that vblank (tests)
+            char *end = nullptr;
+            const std::string v = next();
+            o.load_state_at = std::strtoull(v.c_str(), &end, 0);
+            if (end != nullptr && *end == ':') o.load_state_at_slot = std::atoi(end + 1);
+        }
         else if (a == "--turbo-until") o.turbo_until = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--exit-after") o.exit_after = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--input") o.input_script = next();
@@ -165,6 +180,7 @@ int run(int argc, char **argv) {
     g_kernel.set_turbo_until(opt.turbo_until);
     if (opt.save_state_at != 0u) savestate_schedule_save(opt.save_state_slot, opt.save_state_at);
     if (opt.load_state >= 0) savestate_request_load(opt.load_state);
+    if (opt.load_state_at != 0u) savestate_schedule_load(opt.load_state_at_slot, opt.load_state_at);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 

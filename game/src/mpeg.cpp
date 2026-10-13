@@ -582,6 +582,41 @@ void register_mpeg_imports() {
     hle(M, "sceMpegAvcCsc", MpegAvcCsc);
 }
 
-std::string mpeg_save_blocker() { return g_contexts.empty() ? std::string{} : std::string{"a movie is playing"}; }
+// Decoders are not serialized: they are recreated lazily, so a state taken mid-movie
+// resumes with a few damaged pictures until the next keyframe. Idle contexts (the
+// title screen keeps one) round-trip exactly.
+void mpeg_save(StateWriter &w) {
+    w.section("MPEG");
+    w.pod(static_cast<u32>(g_contexts.size()));
+    for (const auto &[handle, c] : g_contexts) {
+        w.pod(handle);
+        w.pod(c->handle); w.pod(c->ring); w.pod(c->frame_width); w.pod(c->analyzed);
+        w.pod(c->stream_offset); w.pod(c->stream_size); w.pod(c->first_ts); w.pod(c->bytes_received);
+        w.pod(static_cast<u32>(c->packs.size()));
+        for (const auto &p : c->packs) w.vec(p);
+        w.vec(c->video_es); w.vec(c->audio_es); w.pod(c->packs_demuxed);
+        w.pod(c->video_frames); w.pod(c->video_end); w.pod(c->audio_frames); w.vec(c->audio_pcm);
+        w.pod(static_cast<u32>(c->streams.size()));
+        for (const auto &[id, type] : c->streams) { w.pod(id); w.pod(type); }
+        w.pod(c->next_stream);
+    }
+}
+
+void mpeg_load(StateReader &r) {
+    r.section("MPEG");
+    g_contexts.clear();
+    for (u32 n = r.pod<u32>(); n > 0; --n) {
+        const u32 handle = r.pod<u32>();
+        auto c = std::make_unique<Context>();
+        r.pod(c->handle); r.pod(c->ring); r.pod(c->frame_width); r.pod(c->analyzed);
+        r.pod(c->stream_offset); r.pod(c->stream_size); r.pod(c->first_ts); r.pod(c->bytes_received);
+        for (u32 k = r.pod<u32>(); k > 0; --k) { std::vector<u8> p; r.vec(p); c->packs.push_back(std::move(p)); }
+        r.vec(c->video_es); r.vec(c->audio_es); r.pod(c->packs_demuxed);
+        r.pod(c->video_frames); r.pod(c->video_end); r.pod(c->audio_frames); r.vec(c->audio_pcm);
+        for (u32 k = r.pod<u32>(); k > 0; --k) { const u32 id = r.pod<u32>(); c->streams[id] = r.pod<u32>(); }
+        r.pod(c->next_stream);
+        g_contexts[handle] = std::move(c);
+    }
+}
 
 } // namespace p2

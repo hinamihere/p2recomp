@@ -93,8 +93,9 @@ void utility_save(StateWriter &w);
 void utility_load(StateReader &r);
 void savedata_save(StateWriter &w);
 void savedata_load(StateReader &r);
+void mpeg_save(StateWriter &w);
+void mpeg_load(StateReader &r);
 // Returns a reason the game cannot be saved right now, or empty.
-std::string mpeg_save_blocker();
 std::string kernel_save_blocker();
 
 // Requested from the UI; performed at the next safe dispatch boundary.
@@ -103,7 +104,13 @@ void savestate_request_load(int slot);
 void savestate_configure(const std::filesystem::path &dir);
 // Saves `slot` once the vblank counter reaches `vblank` (for scripted tests).
 void savestate_schedule_save(int slot, u64 vblank);
+void savestate_schedule_load(int slot, u64 vblank);
 // Called from the outer dispatch hook; returns true if a state was loaded.
 bool savestate_service();
+// True while a save/load is requested or scheduled (cheap; checked after every import).
+bool savestate_requested();
+// Services a request right after an import returned: the saved thread resumes at ra.
+void savestate_service_at_hle_return();
+bool savestate_at_hle_return();
 
 } // namespace p2

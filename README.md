@@ -90,5 +90,5 @@ Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and du
 Controls: arrows = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q/W = L/R,
 Enter = Start, Backspace = Select, F11 or Alt+Enter = fullscreen, Esc = quit.
 Hold Tab to fast-forward. F5 = savestate, F8 = load savestate (Shift for a second slot);
-states go to `states/`. A savestate is taken at the next safe point (not during movies).
+states go to `states/`. A savestate is taken at the next safe point.
 XInput/SDL gamepads are supported.

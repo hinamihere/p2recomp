@@ -8,7 +8,7 @@ namespace p2 {
 namespace {
 
 constexpr u32 kMagic = 0x53533250u; // "P2SS"
-constexpr u32 kVersion = 2u;
+constexpr u32 kVersion = 3u;
 constexpr u32 kRamBase = 0x08000000u, kRamSize = 32u * 1024u * 1024u;
 constexpr u32 kVramBase = 0x04000000u, kVramSize = 2u * 1024u * 1024u;
 
@@ -17,7 +17,10 @@ int g_pending_save = -1;
 int g_pending_load = -1;
 int g_scheduled_slot = -1;
 u64 g_scheduled_vblank = 0;
+int g_scheduled_load_slot = -1;
+u64 g_scheduled_load_vblank = 0;
 u64 g_blocked_since = 0;
+bool g_at_hle_return = false;
 
 std::filesystem::path slot_path(int slot) { return g_dir / ("slot" + std::to_string(slot) + ".p2s"); }
 
@@ -36,9 +39,7 @@ void load_memory(StateReader &r) {
 }
 
 std::string blocker() {
-    std::string b = kernel_save_blocker();
-    if (b.empty()) b = mpeg_save_blocker();
-    return b;
+    return kernel_save_blocker();
 }
 
 bool do_save(int slot) {
@@ -54,6 +55,7 @@ bool do_save(int slot) {
     audio_save(w);
     sas_save(w);
     atrac_save(w);
+    mpeg_save(w);
     io_save(w);
     utility_save(w);
     savedata_save(w);
@@ -86,6 +88,7 @@ bool do_load(int slot) {
         audio_load(r);
         sas_load(r);
         atrac_load(r);
+        mpeg_load(r);
         io_load(r);
         utility_load(r);
         savedata_load(r);
@@ -109,11 +112,31 @@ void savestate_schedule_save(int slot, u64 vblank) {
     g_scheduled_slot = slot;
     g_scheduled_vblank = vblank;
 }
+void savestate_schedule_load(int slot, u64 vblank) {
+    g_scheduled_load_slot = slot;
+    g_scheduled_load_vblank = vblank;
+}
+
+bool savestate_requested() {
+    return g_pending_save >= 0 || g_pending_load >= 0 || g_scheduled_slot >= 0 || g_scheduled_load_slot >= 0;
+}
+
+void savestate_service_at_hle_return() {
+    g_at_hle_return = true;
+    savestate_service();
+    g_at_hle_return = false;
+}
+
+bool savestate_at_hle_return() { return g_at_hle_return; }
 
 bool savestate_service() {
     if (g_scheduled_slot >= 0 && g_kernel.vblank_count() >= g_scheduled_vblank) {
         g_pending_save = g_scheduled_slot;
         g_scheduled_slot = -1;
+    }
+    if (g_scheduled_load_slot >= 0 && g_kernel.vblank_count() >= g_scheduled_load_vblank) {
+        g_pending_load = g_scheduled_load_slot;
+        g_scheduled_load_slot = -1;
     }
     if (g_pending_save < 0 && g_pending_load < 0) return false;
     // Wait for a point where no interrupt, callback or movie is in flight; give up after ~2 s.

@@ -1,4 +1,5 @@
 #include "hle.hpp"
+#include "savestate.hpp"
 
 #include "kernel.hpp"
 
@@ -62,9 +63,14 @@ void hle(const char *library, const char *name, HleFn fn) {
         const char *label = entry.name;
         rt().register_hle(entry.library, entry.nid, [fn, label](Runtime &, AllegrexContext &c) {
             LOG_T("hle", "%s(%08x, %08x, %08x, %08x) ra=%08x", label, c.gpr[4], c.gpr[5], c.gpr[6], c.gpr[7], c.gpr[31]);
+            const u64 generation = psprecomp::runtime_thread_switch_generation();
             g_kernel.in_hle_call = true;
             fn(c);
             g_kernel.in_hle_call = false;
+            // Code polling an import (e.g. the vcount) never returns to the dispatcher, so
+            // savestates are also taken right after an import returns on the same thread.
+            if (savestate_requested() && psprecomp::runtime_thread_switch_generation_matches(generation))
+                savestate_service_at_hle_return();
         });
         return;
     }
