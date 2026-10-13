@@ -324,9 +324,23 @@ std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf
     // R_MIPS_32 relocations are the authoritative source for function pointers
     // stored in read-only tables embedded in the executable segment (init arrays,
     // vtables, callbacks). Scanning raw RX words would confuse J opcodes with pointers.
+    // HI16/LO16 relocation pairs are just as authoritative for addresses built in
+    // registers, including pairs whose LUI the compiler hoisted into another
+    // basic block (which block-local constant propagation cannot see). PRX
+    // tables list each HI16 before the LO16 halves it pairs with; the immediates
+    // in memory are already relocated, so hi << 16 + sext(lo) is the address.
+    std::optional<std::uint32_t> last_hi;
     for (const auto &site : elf.relocation_sites(load_base)) {
-        if (site.type != 2u || !memory.contains(site.patch_address, 4u)) continue;
-        add_seed(seeds, ranges, memory.load32(site.patch_address), "relocated_r_mips32_code_pointer");
+        if (!memory.contains(site.patch_address, 4u)) continue;
+        if (site.type == 2u) {
+            add_seed(seeds, ranges, memory.load32(site.patch_address), "relocated_r_mips32_code_pointer");
+        } else if (site.type == 5u) {
+            last_hi = memory.load32(site.patch_address) & 0xFFFFu;
+        } else if (site.type == 6u && last_hi) {
+            const auto lo = static_cast<std::int16_t>(memory.load32(site.patch_address) & 0xFFFFu);
+            add_seed(seeds, ranges, (*last_hi << 16u) + static_cast<std::uint32_t>(static_cast<std::int32_t>(lo)),
+                     "relocated_hi16_lo16_code_pointer");
+        }
     }
     return seeds;
 }
@@ -446,6 +460,34 @@ ProgramAnalysis analyze_program(const Elf32Image &elf,
             program.covered_entry_labels.insert(label);
         }
         program.functions.push_back(std::move(function));
+    }
+
+    // Safety net: code reachable only through pointers the analysis cannot
+    // resolve would otherwise stop the runtime. Seed the first non-NOP word of
+    // every remaining gap in the executable sections and analyze it too,
+    // repeating until the gaps are exhausted.
+    for (bool added = true; added;) {
+        added = false;
+        std::vector<std::uint32_t> gap_seeds;
+        for (const auto &range : program.executable_ranges) {
+            bool in_gap = false;
+            for (std::uint32_t pc = range.start; pc < range.end; pc += 4u) {
+                if (program.covered_labels.contains(pc)) { in_gap = false; continue; }
+                if (in_gap) continue;
+                if (memory.load32(pc) == 0u) continue; // alignment padding
+                in_gap = true;
+                gap_seeds.push_back(pc);
+            }
+        }
+        for (const auto seed : gap_seeds) {
+            if (program.covered_labels.contains(seed) || !program.seeds.try_emplace(seed, "uncovered_gap").second) continue;
+            auto function = analyze_function(seed, memory, program.executable_ranges, program.seeds,
+                                             max_instructions_per_function);
+            for (const auto label : function.labels) program.covered_labels.insert(label);
+            for (const auto label : function.entry_labels) program.covered_entry_labels.insert(label);
+            program.functions.push_back(std::move(function));
+            added = true;
+        }
     }
     return program;
 }
