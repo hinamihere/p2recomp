@@ -794,7 +794,7 @@ inline void fragment(const Pipeline &p, int x, int y, float z, int r, int g, int
         return;
     }
     if (p.stencil_test) stencil = stencil_apply(p.st_zpass, stencil, p.st_ref, p.fb_fmt);
-    else stencil = static_cast<u32>(std::clamp(s4[3], 0, 255));
+    // Without the stencil test the framebuffer alpha (= stencil) is preserved.
     if (p.z_write) p.zb[zi] = zval;
 
     int out[3] = {s4[0], s4[1], s4[2]};
