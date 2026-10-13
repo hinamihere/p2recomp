@@ -25,11 +25,17 @@ target_compile_options(p2_generated PRIVATE ${P2_GENERATED_OPT} -w -fno-strict-a
 
 set(SDL2_ROOT "${CMAKE_SOURCE_DIR}/tools/third_party/sdl2/SDL2-2.32.10/x86_64-w64-mingw32" CACHE PATH "SDL2 MinGW dev root")
 
+# ATRAC3/ATRAC3+ decoder from PPSSPP's ext/at3_standalone (FFmpeg-derived, LGPL 2.1+).
+file(GLOB AT3_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/game/third_party/at3_standalone/*.cpp")
+add_library(at3_standalone STATIC ${AT3_SOURCES})
+target_include_directories(at3_standalone PUBLIC "${CMAKE_SOURCE_DIR}/game/third_party/at3_standalone")
+target_compile_options(at3_standalone PRIVATE -O2 -w)
+
 file(GLOB P2_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/game/src/*.cpp")
 add_executable(p2 ${P2_SOURCES})
 target_include_directories(p2 PRIVATE "${SDL2_ROOT}/include")
 target_link_directories(p2 PRIVATE "${SDL2_ROOT}/lib")
-target_link_libraries(p2 PRIVATE p2_generated psprecomp_core SDL2)
+target_link_libraries(p2 PRIVATE p2_generated psprecomp_core at3_standalone SDL2)
 target_compile_options(p2 PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_options(p2 PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
 add_custom_command(TARGET p2 POST_BUILD

@@ -1,5 +1,6 @@
 // Persona 2: Innocent Sin (PSP, ULES-01557) — native host for the statically
 // recompiled EBOOT.
+#include "atrac.hpp"
 #include "audio.hpp"
 #include "display.hpp"
 #include "ge.hpp"
@@ -105,6 +106,7 @@ int run(int argc, char **argv) {
     register_audio_imports();
     register_stub_imports();
     register_sas_imports();
+    register_atrac_imports();
     report_unimplemented_imports();
 
     psprecomp::set_runtime_post_dispatch_hook(on_post_dispatch);

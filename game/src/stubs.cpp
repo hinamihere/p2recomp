@@ -21,22 +21,6 @@ void note(const char *name, AllegrexContext &c) {
         ret(c, value);                        \
     }
 
-// --- sceAtrac3plus ---
-STUB(AtracSetDataAndGetID, 0u)
-STUB(AtracReleaseAtracID, 0u)
-STUB(AtracGetBufferInfoForResetting, 0u)
-STUB(AtracGetStreamDataInfo, 0u)
-STUB(AtracResetPlayPosition, 0u)
-STUB(AtracDecodeData, 0x80630024u)
-STUB(AtracAddStreamData, 0u)
-STUB(AtracSetSecondBuffer, 0u)
-STUB(AtracGetSecondBufferInfo, 0x80630022u)
-STUB(AtracSetLoopNum, 0u)
-STUB(AtracGetRemainFrame, 0u)
-STUB(AtracGetSoundSample, 0u)
-STUB(AtracGetNextDecodePosition, 0u)
-STUB(AtracGetInternalErrorInfo, 0u)
-
 // --- sceMpeg ---
 STUB(MpegInit, 0u)
 STUB(MpegFinish, 0u)
@@ -131,22 +115,6 @@ STUB(UtilityUnloadModule, 0u)
 } // namespace
 
 void register_stub_imports() {
-    const char *A = "sceAtrac3plus";
-    hle(A, "sceAtracSetDataAndGetID", AtracSetDataAndGetID);
-    hle(A, "sceAtracReleaseAtracID", AtracReleaseAtracID);
-    hle(A, "sceAtracGetBufferInfoForResetting", AtracGetBufferInfoForResetting);
-    hle(A, "sceAtracGetStreamDataInfo", AtracGetStreamDataInfo);
-    hle(A, "sceAtracResetPlayPosition", AtracResetPlayPosition);
-    hle(A, "sceAtracDecodeData", AtracDecodeData);
-    hle(A, "sceAtracAddStreamData", AtracAddStreamData);
-    hle(A, "sceAtracSetSecondBuffer", AtracSetSecondBuffer);
-    hle(A, "sceAtracGetSecondBufferInfo", AtracGetSecondBufferInfo);
-    hle(A, "sceAtracSetLoopNum", AtracSetLoopNum);
-    hle(A, "sceAtracGetRemainFrame", AtracGetRemainFrame);
-    hle(A, "sceAtracGetSoundSample", AtracGetSoundSample);
-    hle(A, "sceAtracGetNextDecodePosition", AtracGetNextDecodePosition);
-    hle(A, "sceAtracGetInternalErrorInfo", AtracGetInternalErrorInfo);
-
     const char *M = "sceMpeg";
     hle(M, "sceMpegInit", MpegInit);
     hle(M, "sceMpegFinish", MpegFinish);
