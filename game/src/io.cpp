@@ -113,7 +113,7 @@ s32 open_file(const std::string &psp_path, u32 flags) {
     if (dev == Device::Disc) {
         u64 lbn = 0, size = 0;
         if (parse_lbn(relative, lbn, size)) {
-            f->file = std::fopen(g_config.iso_path.string().c_str(), "rb");
+            f->file = _wfopen(g_config.iso_path.wstring().c_str(), L"rb");
             f->base = lbn * 2048u;
             f->size = size;
         } else {

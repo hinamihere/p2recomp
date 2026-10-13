@@ -68,10 +68,14 @@ Options parse_options(int argc, char **argv) {
         else if (a == "-q") g_log_level = LogLevel::Warn;
     }
     if (o.iso.empty()) {
-        // Default: the first .iso next to the extracted tree's parent.
+        // Default: the first .iso in the working directory or one level below.
+        // Relative paths avoid narrow-codepage trouble with non-ASCII folders.
         std::error_code ec;
-        for (const auto &entry : std::filesystem::recursive_directory_iterator(".", ec)) {
-            if (entry.path().extension() == ".iso") { o.iso = entry.path(); break; }
+        for (auto it = std::filesystem::recursive_directory_iterator(".", ec);
+             it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+            if (ec) break;
+            if (it.depth() >= 1) it.disable_recursion_pending();
+            if (it->path().extension() == ".iso") { o.iso = it->path(); break; }
         }
     }
     return o;
