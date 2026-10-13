@@ -144,7 +144,9 @@ void on_vblank() {
         rt().stop("window closed");
         return;
     }
-    present_frame();
+    K.set_turbo_key(host::fast_forward_held());
+    // While fast-forwarding only every 8th vblank is shown (and rasterized, see gpu_soft).
+    if (!K.turbo() || (K.vblank_count() & 7u) == 0u) present_frame();
     ++g_ctrl_samples;
     for (Thread *t : K.waiters(WaitType::Ctrl, 0, false)) {
         write_ctrl_data(t->wait_value[0], t->wait_value[1]);
@@ -181,6 +183,7 @@ void DisplaySetFrameBuf(AllegrexContext &c) {
     if (g_display.fb_addr != arg(c, 0)) {
         LOG_T("display", "framebuffer %08x stride %u format %u", arg(c, 0), arg(c, 1), arg(c, 2));
         ++K.perf_flips;
+        ++K.total_flips;
     }
     g_display.fb_addr = arg(c, 0);
     if (arg(c, 1) != 0u) g_display.stride = arg(c, 1);
@@ -209,7 +212,8 @@ void DisplayGetVcount(AllegrexContext &c) {
     if (now_count == last) {
         if (++repeats >= 256u) {
             const u64 now = Kernel::now_us(), next = K.next_vblank_us();
-            if (next > now + 300u) std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
+            if (K.turbo()) K.skip_time_to(next);
+            else if (next > now + 300u) std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
             repeats = 0;
         }
     } else {

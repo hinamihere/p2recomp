@@ -141,6 +141,11 @@ bool pump_events() {
     return true;
 }
 
+bool fast_forward_held() {
+    const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+    return keys != nullptr && keys[SDL_SCANCODE_TAB] != 0;
+}
+
 u32 buttons() {
     u32 b = g_keys | g_pad_buttons;
     if (g_pad != nullptr) {

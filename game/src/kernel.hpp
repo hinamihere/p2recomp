@@ -188,6 +188,12 @@ public:
 
     // --- time ---
     static u64 now_us();
+    // Fast-forward: while active, idle time is skipped instead of slept.
+    bool turbo() const;
+    void set_turbo_until(u64 vblank) { turbo_until_ = vblank; }
+    void set_turbo_key(bool held) { turbo_key_ = held; }
+    // Advances the virtual clock so that now_us() >= target.
+    void skip_time_to(u64 target);
     u64 vblank_count() const { return vcount_; }
     u64 next_vblank_us() const { return next_vblank_us_; }
     static constexpr u64 kVblankPeriodUs = 16683u; // 59.94 Hz
@@ -270,6 +276,7 @@ public:
     u64 perf_gpu_us{};
     u64 perf_present_us{};
     u64 perf_flips{};
+    u64 total_flips{};
 
     // Set while an HLE import executes: saved contexts resume at $ra.
     bool in_hle_call{};
@@ -297,6 +304,9 @@ private:
     void on_vblank();
     u64 next_deadline() const;
     void report_performance();
+    static u64 time_offset_us_;
+    static u64 turbo_until_;
+    static bool turbo_key_;
     u64 idle_us_{};
     u64 perf_window_start_{};
 

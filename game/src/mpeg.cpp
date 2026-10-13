@@ -10,6 +10,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
+#include <libavutil/log.h>
 }
 
 #include <algorithm>
@@ -148,6 +149,7 @@ bool stream_complete(const Context &c) { return c.stream_size != 0u && c.bytes_r
 
 void ensure_video(Context &c) {
     if (c.avc != nullptr) return;
+    av_log_set_level(AV_LOG_FATAL); // truncated streams (skipped movies) are expected
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     c.avc = avcodec_alloc_context3(codec);
     avcodec_open2(c.avc, codec, nullptr);

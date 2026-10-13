@@ -46,6 +46,7 @@ struct Options {
     bool headless{};
     bool smooth{};
     u64 exit_after{};
+    u64 turbo_until{};
     u32 dump_every{};
     std::string input_script;
     std::string audio_dump;
@@ -63,6 +64,7 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
         else if (a == "--smooth") o.smooth = true;
+        else if (a == "--turbo-until") o.turbo_until = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--exit-after") o.exit_after = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--input") o.input_script = next();
         else if (a == "--dump-audio") o.audio_dump = next();
@@ -148,6 +150,7 @@ int run(int argc, char **argv) {
     }
 
     g_kernel.init(module->gp, module_end);
+    g_kernel.set_turbo_until(opt.turbo_until);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 

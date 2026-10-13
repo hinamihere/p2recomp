@@ -37,6 +37,10 @@ std::FILE *g_dump{}; // raw s16 stereo 44.1 kHz capture of the final mix
 
 void mix(s16 *out, int frames) {
     std::lock_guard lock(g_mutex);
+    if (K.turbo()) {
+        std::fill(out, out + frames * 2, s16{0});
+        return;
+    }
     for (int f = 0; f < frames; ++f) {
         s32 l = 0, r = 0;
         for (auto &ch : g_channels) {
@@ -79,7 +83,25 @@ void enqueue(Channel &ch, u32 buffer, s32 lvol, s32 rvol) {
 }
 
 // Threads blocked on output resume once their channel holds at most one buffer.
-void check_waiters(u64) {
+// While fast-forwarding the host cannot play audio at the game's pace, so queued
+// samples are discarded at 44.1 kHz of *virtual* time. Blocking output therefore
+// still paces the producing threads exactly as playback would.
+void drain_virtual(u64 now) {
+    static u64 last = 0;
+    if (!K.turbo()) { last = 0; return; }
+    if (last == 0u) { last = now; return; }
+    const u64 frames = (now - last) * 44100u / 1000000u;
+    if (frames == 0u) return;
+    last += frames * 1000000u / 44100u;
+    std::lock_guard lock(g_mutex);
+    for (auto &ch : g_channels) {
+        const std::size_t n = std::min<std::size_t>(ch.queue.size(), frames * 2u);
+        ch.queue.erase(ch.queue.begin(), ch.queue.begin() + static_cast<std::ptrdiff_t>(n));
+    }
+}
+
+void check_waiters(u64 now) {
+    drain_virtual(now);
     for (Thread *t : K.waiters(WaitType::Audio, 0, false)) {
         const s32 ch = static_cast<s32>(t->wait_value[0]);
         bool ready;

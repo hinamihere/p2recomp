@@ -17,6 +17,8 @@ bool pump_events();
 
 // PSP button bitmask and analog stick (0..255, 128 = centre).
 u32 buttons();
+// True while the fast-forward key (Tab) is held.
+bool fast_forward_held();
 u8 analog_x();
 u8 analog_y();
 

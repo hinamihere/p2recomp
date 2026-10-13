@@ -1094,6 +1094,9 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
     if (l.index != 0u) s.index_addr += count * index_size[l.index];
     else s.vertex_addr += count * l.size * l.morphs;
 
+    // Fast-forward: rasterize only the frames that get presented (every 8th vblank).
+    if (g_kernel.turbo() && (g_kernel.total_flips & 7u) != 0u) return;
+
     Pipeline p;
     setup_pipeline(p, s, l.through);
     if (std::FILE *tf = trace_file()) {

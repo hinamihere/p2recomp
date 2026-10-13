@@ -40,10 +40,21 @@ const char *wait_type_name(WaitType type) {
     return "?";
 }
 
+u64 Kernel::time_offset_us_ = 0;
+u64 Kernel::turbo_until_ = 0;
+bool Kernel::turbo_key_ = false;
+
 u64 Kernel::now_us() {
     using namespace std::chrono;
     static const auto start = steady_clock::now();
-    return static_cast<u64>(duration_cast<microseconds>(steady_clock::now() - start).count()) + 1'000'000u;
+    return static_cast<u64>(duration_cast<microseconds>(steady_clock::now() - start).count()) + 1'000'000u + time_offset_us_;
+}
+
+bool Kernel::turbo() const { return turbo_key_ || vcount_ < turbo_until_; }
+
+void Kernel::skip_time_to(u64 target) {
+    const u64 now = now_us();
+    if (target > now) time_offset_us_ += target - now;
 }
 
 void Kernel::init(u32 module_gp, u32 module_end) {
@@ -650,6 +661,11 @@ void Kernel::idle(AllegrexContext &c) {
     const u64 now = now_us();
     const u64 next = next_deadline();
     if (next > now) {
+        if (turbo()) {
+            // Fast-forward: nothing to run until the next event, so jump the clock there.
+            skip_time_to(next);
+            return;
+        }
         const u64 wait = std::min<u64>(next - now, 2000u);
         if (wait > 200u) std::this_thread::sleep_for(std::chrono::microseconds(wait - 100u));
         else std::this_thread::yield();
