@@ -45,6 +45,7 @@ struct Options {
     int scale{2};
     bool headless{};
     bool smooth{};
+    u64 exit_after{};
     u32 dump_every{};
     std::string input_script;
     std::string audio_dump;
@@ -62,6 +63,7 @@ Options parse_options(int argc, char **argv) {
         else if (a == "--scale") o.scale = std::atoi(next().c_str());
         else if (a == "--headless") o.headless = true;
         else if (a == "--smooth") o.smooth = true;
+        else if (a == "--exit-after") o.exit_after = std::strtoull(next().c_str(), nullptr, 0);
         else if (a == "--input") o.input_script = next();
         else if (a == "--dump-audio") o.audio_dump = next();
         else if (a == "--dump-frames") o.dump_every = static_cast<u32>(std::atoi(next().c_str()));
@@ -138,6 +140,13 @@ int run(int argc, char **argv) {
         audio_start();
     }
 
+    if (opt.exit_after != 0u) {
+        const u64 limit = opt.exit_after;
+        g_kernel.vblank_listeners.push_back([limit] {
+            if (g_kernel.vblank_count() >= limit) rt().stop("exit-after reached");
+        });
+    }
+
     g_kernel.init(module->gp, module_end);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
@@ -150,7 +159,8 @@ int run(int argc, char **argv) {
         LOG_E("boot", "fatal: %s", e.what());
         status = 2;
     }
-    if (r.stop_reason() != "window closed" && r.stop_reason() != "sceKernelExitGame") {
+    if (std::getenv("PSPRECOMP_HLE_HISTOGRAM") != nullptr) r.report_hle_histogram(30u);
+    if (r.stop_reason() != "window closed" && r.stop_reason() != "sceKernelExitGame" && r.stop_reason() != "exit-after reached") {
         LOG_E("boot", "thread state at stop (current uid=%x):", g_kernel.current_uid());
         g_kernel.dump_threads();
         if (status == 0) status = 3;
