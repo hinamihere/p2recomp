@@ -852,9 +852,124 @@ u32 mapper_buttons() {
     }
 }
 
+// P2_TOUR=<map file>[,first[,last]]: walks to the interaction spots recorded in a map (see P2_MAPPER), faces each one and
+// presses Cross, then pages through whatever happens (dialogue, prompts are declined with Circle afterwards).
+// Every visit is logged ("[tour] #i cell (x,z) dir d: interacting at vblank V") so the frames can be inspected.
+// Spots are taken in the order of the file; first/last select a range. P2_TOUR_NO_CROSS=1 only walks and faces.
+u32 tour_buttons() {
+    static const char *env = std::getenv("P2_TOUR");
+    if (env == nullptr) return 0u;
+    constexpr float kCell = 48.f;
+    static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
+    static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
+    using Cell = std::pair<int, int>;
+    enum class Phase { Goto, Face, Interact, Wait, Done };
+    struct Tour {
+        std::map<Cell, std::array<int, 4>> edges;
+        std::vector<std::tuple<int, int, int>> targets; // (cell x, cell z, dir)
+        std::size_t index{};
+        std::size_t last{};
+        Phase phase{Phase::Goto};
+        u64 phase_start{};
+        bool loaded{};
+        bool no_cross{};
+        Cell last_here{INT_MIN, 0};
+        u64 last_move{};
+        float last_x{}, last_z{};
+    };
+    static Tour t;
+    const u64 now = g_kernel.vblank_count();
+    if (!t.loaded) {
+        t.loaded = true;
+        char path[512] = {0};
+        unsigned first = 0, last = 100000;
+        std::sscanf(env, "%511[^,],%u,%u", path, &first, &last);
+        t.no_cross = std::getenv("P2_TOUR_NO_CROSS") != nullptr;
+        std::FILE *f = std::fopen(path, "r");
+        if (f == nullptr) { LOG_E("tour", "cannot open map %s", path); t.phase = Phase::Done; return 0u; }
+        char tag[16];
+        int a, b, c, d, e, g;
+        char line[256];
+        while (std::fgets(line, sizeof(line), f) != nullptr) {
+            if (std::sscanf(line, "%15s", tag) != 1) continue;
+            if (std::string(tag) == "C" && std::sscanf(line, "C %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) t.edges[{a, b}] = {c, d, e, g};
+            if (std::string(tag) == "EV" && std::sscanf(line, "EV %d %d %d", &a, &b, &c) == 3 && c >= 0 && c < 4) t.targets.emplace_back(a, b, c);
+        }
+        std::fclose(f);
+        t.index = first;
+        t.last = std::min<std::size_t>(last, t.targets.size());
+        LOG_I("tour", "%zu cells, %zu interaction spots, tour %zu..%zu", t.edges.size(), t.targets.size(), t.index, t.last);
+        t.phase_start = now;
+    }
+    if (t.phase == Phase::Done || t.index >= t.last) {
+        if (t.phase != Phase::Done) { LOG_I("tour", "tour finished"); t.phase = Phase::Done; }
+        return 0u;
+    }
+    const float x = guest_float(0x08CD4190u), z = guest_float(0x08CD4198u);
+    const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
+    const auto [tx, tz, td] = t.targets[t.index];
+    const Cell target{tx, tz};
+
+    if (t.phase == Phase::Goto) {
+        if (here == target) { t.phase = Phase::Face; t.phase_start = now; return 0u; }
+        // breadth-first search over passable edges; the first step of the shortest path is where to go next
+        std::map<Cell, Cell> parent;
+        std::vector<Cell> queue{target};
+        parent[target] = target;
+        bool reached = false;
+        for (std::size_t qi = 0; qi < queue.size() && !reached; ++qi) {
+            const Cell c = queue[qi];
+            const auto it = t.edges.find(c);
+            if (it == t.edges.end()) continue;
+            for (int d = 0; d < 4; ++d) {
+                if (it->second[static_cast<std::size_t>(d)] != 1) continue;
+                const Cell n{c.first + kDx[d], c.second + kDz[d]};
+                if (parent.count(n)) continue;
+                parent[n] = c;
+                if (n == here) { reached = true; break; }
+                queue.push_back(n);
+            }
+        }
+        if (!reached) {
+            LOG_I("tour", "#%zu cell (%d,%d): no known route from (%d,%d), skipping", t.index, tx, tz, here.first, here.second);
+            ++t.index;
+            return 0u;
+        }
+        const Cell next = parent[here];
+        // stuck? (the map says passable but the party does not move)
+        if (std::fabs(x - t.last_x) + std::fabs(z - t.last_z) > 3.f) { t.last_x = x; t.last_z = z; t.last_move = now; }
+        if (now - t.phase_start > 3000u) { LOG_I("tour", "#%zu timed out, skipping", t.index); ++t.index; t.phase_start = now; return 0u; }
+        for (int d = 0; d < 4; ++d)
+            if (here.first + kDx[d] == next.first && here.second + kDz[d] == next.second) return kDirButtons[d];
+        return 0u;
+    }
+    if (t.phase == Phase::Face) {
+        if (now - t.phase_start < 14u) return kDirButtons[td];
+        t.phase = Phase::Interact;
+        t.phase_start = now;
+        return 0u;
+    }
+    if (t.phase == Phase::Interact) {
+        if (now == t.phase_start + 1u) LOG_I("tour", "#%zu cell (%d,%d) dir %d: interacting at vblank %llu", t.index, tx, tz, td, static_cast<unsigned long long>(now));
+        if (now - t.phase_start < 3u && !t.no_cross) return 0x4000u;
+        if (now - t.phase_start < 8u) return 0u;
+        t.phase = Phase::Wait;
+        t.phase_start = now;
+        return 0u;
+    }
+    // Wait: page through the result (Cross twice), then back out with Circle
+    const u64 age = now - t.phase_start;
+    if (age < 180u) return (age % 40u < 3u) ? 0x4000u : 0u;
+    if (age < 300u) return (age % 40u < 3u) ? 0x2000u : 0u;
+    ++t.index;
+    t.phase = Phase::Goto;
+    t.phase_start = now;
+    return 0u;
+}
+
 u32 scripted_buttons() {
     const u64 now = g_kernel.vblank_count();
-    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons() | mapper_buttons();
+    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons() | mapper_buttons() | tour_buttons();
     for (const auto &p : g_script)
         if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
     return b;

@@ -161,6 +161,10 @@ fought with Auto-Battle (Triangle on the Tactics menu) and the walk resumes afte
 always reports "no encounter"), which makes mapping about ten times faster. `tools/mapview.py` renders the result as text/PNG. A full
 first floor of the school (3,400 cells incl. the classrooms, 235 interaction spots) takes about ten minutes of emulation.
 
+`P2_TOUR=<map>[,first,last]` walks to the interaction spots recorded in a mapper file (breadth-first over the known passable edges), faces
+each, presses Cross and pages through the result; `tools/framesheet.py` makes a contact sheet of the dumped frames around given
+vblanks. (The school's first-floor tour found the courtyard story scene where Ms. Ideal's statue moves.)
+
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).
