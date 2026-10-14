@@ -14,6 +14,12 @@
 #include <filesystem>
 #include <chrono>
 #include <thread>
+#include <climits>
+#include <cstdint>
+#include <map>
+#include <random>
+#include <set>
+#include <tuple>
 #include <vector>
 
 namespace p2 {
@@ -234,9 +240,85 @@ u32 climb_buttons() {
     return kDirs[dir];
 }
 
+// P2_EXPLORE=1 (or "<xaddr>,<zaddr>" in hex): dungeon exploration bot. It reads the party leader's world
+// position (defaults: x at 08CD4190, z at 08CD4198), walks along the four d-pad directions, prefers the
+// neighbouring grid cell it has visited least, turns away from walls it bumped into, and taps Cross every
+// second (doors, dialogue, battle commands). While the position does not change for a second (battle,
+// dialogue, loading) it only taps Cross. P2_EXPLORE_SEED selects the random tie-breaking.
+u32 explore_buttons() {
+    static const char *env = std::getenv("P2_EXPLORE");
+    if (env == nullptr) return 0u;
+    struct Explorer {
+        u32 xaddr{0x08CD4190u}, zaddr{0x08CD4198u};
+        std::map<std::pair<int, int>, int> visits;
+        std::set<std::tuple<int, int, int>> blocked;
+        std::pair<int, int> cell{INT_MIN, 0};
+        int heading{3}; // 0 up (z-), 1 down (z+), 2 left (x-), 3 right (x+)
+        float last_x{}, last_z{};
+        u64 last_check{}, last_move{}, last_log{};
+        std::mt19937 rng;
+    };
+    static Explorer e = [] {
+        Explorer r;
+        unsigned xa = 0, za = 0;
+        if (std::sscanf(env, "%x,%x", &xa, &za) == 2) { r.xaddr = xa; r.zaddr = za; }
+        const char *seed = std::getenv("P2_EXPLORE_SEED");
+        r.rng.seed(seed ? static_cast<unsigned>(std::strtoul(seed, nullptr, 10)) : 1u);
+        return r;
+    }();
+    static constexpr u32 kHeadingButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
+    static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
+    const u64 now = g_kernel.vblank_count();
+    const float x = guest_float(e.xaddr), z = guest_float(e.zaddr);
+    const std::pair<int, int> cell{static_cast<int>(std::floor(x / 200.f)), static_cast<int>(std::floor(z / 200.f))};
+
+    auto choose = [&] {
+        float best = -1e9f;
+        int pick = e.heading;
+        for (int d = 0; d < 4; ++d) {
+            if (e.blocked.count({cell.first, cell.second, d})) continue;
+            const auto it = e.visits.find({cell.first + kDx[d], cell.second + kDz[d]});
+            const float visited = it == e.visits.end() ? 0.f : static_cast<float>(it->second);
+            const float score = -visited + (d == e.heading ? 0.6f : 0.f) + static_cast<float>(e.rng() % 100u) / 250.f;
+            if (score > best) { best = score; pick = d; }
+        }
+        e.heading = pick;
+    };
+    if (cell != e.cell) {
+        e.cell = cell;
+        ++e.visits[cell];
+        choose();
+    }
+    if (e.last_check == 0u) { e.last_check = now; e.last_x = x; e.last_z = z; e.last_move = now; }
+    if (now - e.last_check >= 8u) {
+        const float moved = std::fabs(x - e.last_x) + std::fabs(z - e.last_z);
+        if (moved >= 30.f) {
+            e.last_move = now;
+        } else if (now - e.last_move < 60u) {
+            e.blocked.insert({cell.first, cell.second, e.heading}); // bumped into a wall
+            choose();
+        }
+        e.last_x = x; e.last_z = z; e.last_check = now;
+    }
+    if (now - e.last_log >= 1200u) {
+        e.last_log = now;
+        LOG_I("explore", "vblank %llu at (%.0f, %.0f) cell (%d,%d): %zu cells visited, %zu walls", static_cast<unsigned long long>(now), x, z,
+              cell.first, cell.second, e.visits.size(), e.blocked.size());
+    }
+    u32 buttons = 0u;
+    const bool idle = now - e.last_move >= 60u; // battle, dialogue or loading: confirm quickly
+    if (now % (idle ? 18u : 60u) < 3u) buttons |= 0x4000u; // Cross
+    // Long idle: also back out of whatever menu or status screen the confirming wandered into.
+    if (now - e.last_move > 300u && now % 240u >= 120u && now % 240u < 124u) buttons |= 0x2000u; // Circle
+    // While idle, push a direction for a few frames now and then so it notices when it is free to walk again.
+    if (!idle || now % 90u < 16u) buttons |= kHeadingButtons[e.heading];
+    if (idle && now % 90u == 0u) e.heading = static_cast<int>(e.rng() % 4u);
+    return buttons;
+}
+
 u32 scripted_buttons() {
     const u64 now = g_kernel.vblank_count();
-    u32 b = autopilot_buttons() | climb_buttons();
+    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons();
     for (const auto &p : g_script)
         if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
     return b;

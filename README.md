@@ -142,6 +142,8 @@ Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and du
 `tools/profile.py build/release/p2.exe`), `P2_RASTER_THREADS=N` (default: cores - 2, at most 4),
 `P2_RASTER_VERIFY=1` (check banded against sequential rasterization), `P2_RASTER_STATS=1`.
 `P2_SAVEDATA_AUTO=1` (skip the slot picker: newest save / first free slot), `P2_MPEG_DUMP=<file>` (raw movie stream + per-picture checksums), `P2_FFMPEG_LOG=1`,
+`P2_EXPLORE=1` (or `<xaddr>,<zaddr>`; `P2_EXPLORE_SEED`) runs an in-game dungeon exploration bot: it reads the party leader's position, walks the four d-pad directions towards the least visited neighbouring cell, turns away from walls and taps Cross (doors, dialogue, battle commands); `tools/bannerscan.py` lists the area banners that appear during a run (seed 0 = the bot), `tools/bubblescan.py` finds the "!" interaction bubbles while walking, `tools/dungeonwalk.py` is the scripted random-walk variant.
+
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).
