@@ -14,12 +14,14 @@ Playable from boot into the story:
 - New Game, name entry, story scenes with dialogue and portraits
 - field exploration (3D map, camera), school interiors, NPC conversations, main menu, automap
 - background music (ATRAC3+ streaming with loops), sound effects (SAS with reverb), movie audio
-- saves stored on the host (`memstick/PSP/SAVEDATA/...`)
+- saves stored on the host (`memstick/PSP/SAVEDATA/...`), with a save/load slot picker in place of
+  the PSP system dialog (Up/Down, Left/Right page, X confirm, O back; asks before overwriting)
 - runs at the game's native 30 fps; fast-forward (Tab) and savestates (F5/F8)
 
 Verified by scripted play through the whole opening chain at Seven Sisters High, the Persona
 awakening (movie, Philemon scene) and the first scripted battle against the Joker (fusion spell,
-battle effects). Not verified yet: random-encounter battles in a dungeon, saving at save points. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+battle effects). Saving and loading through the game's own menus is verified.
+Not verified yet: random-encounter battles in a dungeon. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 
@@ -96,7 +98,7 @@ Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and du
 `P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`, `P2_PROFILE=1` (sampling profiler, then
 `tools/profile.py build/release/p2.exe`), `P2_RASTER_THREADS=N` (default: cores - 2, at most 4),
 `P2_RASTER_VERIFY=1` (check banded against sequential rasterization), `P2_RASTER_STATS=1`.
-`P2_MPEG_DUMP=<file>` (raw movie stream + per-picture checksums), `P2_FFMPEG_LOG=1`,
+`P2_SAVEDATA_AUTO=1` (skip the slot picker: newest save / first free slot), `P2_MPEG_DUMP=<file>` (raw movie stream + per-picture checksums), `P2_FFMPEG_LOG=1`,
 `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).
 

@@ -80,7 +80,10 @@ SPS/PPS are kept (also in savestates) and resent to a decoder recreated mid-stre
 
 `disc0:`/`umd0:` paths resolve into the extracted ISO tree; `sce_lbnXXX_sizeYYY` paths read
 sectors from the ISO. `ms0:` maps to `memstick/`. Savedata is stored unencrypted in
-`memstick/PSP/SAVEDATA/<game><save>/` with a generated `PARAM.SFO`.
+`memstick/PSP/SAVEDATA/<game><save>/` with a generated `PARAM.SFO`. The list modes
+(LISTLOAD/LISTSAVE/LISTDELETE) open a slot picker that `overlay.cpp` draws over the presented frame
+with a public-domain 8x8 font (`game/third_party/font8x8`); while it is open the game reads no
+buttons, and its state is part of savestates (the slot list is rebuilt from disk).
 
 ## Savestates (`savestate.cpp`)
 
