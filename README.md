@@ -20,8 +20,10 @@ Playable from boot into the story:
 
 Verified by scripted play through the whole opening chain at Seven Sisters High, the Persona
 awakening (movie, Philemon scene) and the first scripted battle against the Joker (fusion spell,
-battle effects). Saving and loading through the game's own menus is verified.
-Not verified yet: random-encounter battles in a dungeon. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+battle effects). Saving and loading through the game's own menus is verified. Seven Sisters High (the first
+dungeon) loads; a random encounter starts (flash transition, loading, battle scene) and the
+demon contact/negotiation tutorial plays through, including the Contact menu and the reward.
+Not verified yet: the fighting commands (attack, Persona, items) of a full battle and later areas. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 
