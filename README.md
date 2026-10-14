@@ -24,8 +24,12 @@ battle effects). Saving and loading through the game's own menus is verified. Se
 dungeon) loads; a random encounter starts (flash transition, loading, battle scene) and the
 demon contact/negotiation tutorial plays through, including the Contact menu and the reward.
 A normal fight also runs end to end (Tactics menu, attacks with damage numbers, enemy turns, damage to
-the party, victory and return to the dungeon). Not verified yet: Persona/skill/item commands, boss
-fights, saving at a dungeon save point and later areas. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+the party, victory and return to the dungeon). The per-character command menu works too: Skill (Agi cast with its
+spell banner, effect and SP cost), Item (Medicine list), Persona (affinity screen with portrait), and the end of a
+fight shows the Level Up screens with stat point distribution for each party member. The dungeon command menu
+(Skills, Items, Equip, Persona, Status, Analyze, Battle settings, System) opens, and saving from the dungeon's
+System menu works (slot picker, overwrite prompt, "Saving system data"). Not verified yet: boss fights, escape and
+guard commands, shops, later chapters. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 
