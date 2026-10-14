@@ -137,6 +137,7 @@ struct Autopilot {
     u32 px{}, pz{};
     std::vector<std::pair<float, float>> points;
     std::size_t next{};
+    u64 since{};  // vblank the current waypoint was started
     float ux{1}, uz{-1}, rx{1}, rz{1};
 };
 
@@ -175,9 +176,14 @@ u32 autopilot_buttons() {
     const auto [tx, tz] = a.points[a.next];
     const float dx = tx - x, dz = tz - z;
     if ((g_kernel.vblank_count() & 7u) == 0u) LOG_I("goto", "at %.2f,%.2f -> %.2f,%.2f", x, z, tx, tz);
-    if (dx * dx + dz * dz < 0.09f) {
-        LOG_I("goto", "reached waypoint %u (%.2f,%.2f)", static_cast<unsigned>(a.next), x, z);
+    const u64 now = g_kernel.vblank_count();
+    if (a.since == 0u) a.since = now;
+    const bool reached = dx * dx + dz * dz < 0.09f;
+    // Unreachable targets (walls) are given up after 4 seconds.
+    if (reached || now - a.since > 240u) {
+        LOG_I("goto", "%s waypoint %u (%.2f,%.2f)", reached ? "reached" : "gave up on", static_cast<unsigned>(a.next), x, z);
         ++a.next;
+        a.since = now;
         return 0u;
     }
     // Score the 8 stick directions by alignment with the wanted world direction.
@@ -199,9 +205,32 @@ u32 autopilot_buttons() {
     return best;
 }
 
+// P2_CLIMB=<hex addr of the player's height float>: holds a d-pad direction while the height
+// rises and turns to the next of the 8 directions when it stops (spiral staircases).
+u32 climb_buttons() {
+    static const u32 addr = [] { const char *e = std::getenv("P2_CLIMB"); return e ? static_cast<u32>(std::strtoul(e, nullptr, 16)) : 0u; }();
+    if (addr == 0u) return 0u;
+    static constexpr u32 kDirs[8] = {0x10u, 0x30u, 0x20u, 0x60u, 0x40u, 0xC0u, 0x80u, 0x90u}; // clockwise from UP
+    static int dir = 4; // DOWN
+    static float prev = 0.f;
+    static u64 checked = 0;
+    const u64 now = g_kernel.vblank_count();
+    const float h = guest_float(addr);
+    if (checked == 0u) { checked = now; prev = h; }
+    if (now - checked >= 10u) {
+        if (h <= prev + 0.02f) {
+            dir = (dir + 1) & 7;
+            LOG_I("climb", "height %.2f, trying direction %d", h, dir);
+        }
+        prev = h;
+        checked = now;
+    }
+    return kDirs[dir];
+}
+
 u32 scripted_buttons() {
     const u64 now = g_kernel.vblank_count();
-    u32 b = autopilot_buttons();
+    u32 b = autopilot_buttons() | climb_buttons();
     for (const auto &p : g_script)
         if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
     return b;
