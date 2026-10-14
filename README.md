@@ -102,7 +102,8 @@ Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and du
 `tools/profile.py build/release/p2.exe`), `P2_RASTER_THREADS=N` (default: cores - 2, at most 4),
 `P2_RASTER_VERIFY=1` (check banded against sequential rasterization), `P2_RASTER_STATS=1`.
 `P2_SAVEDATA_AUTO=1` (skip the slot picker: newest save / first free slot), `P2_MPEG_DUMP=<file>` (raw movie stream + per-picture checksums), `P2_FFMPEG_LOG=1`,
-`P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
+`P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
+to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).
 
 Controls: arrows = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q/W = L/R,

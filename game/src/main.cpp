@@ -2,6 +2,7 @@
 // recompiled EBOOT.
 #include "atrac.hpp"
 #include "profiler.hpp"
+#include "watchpoint.hpp"
 #include "savestate.hpp"
 #include "audio.hpp"
 #include "display.hpp"
@@ -188,6 +189,7 @@ int run(int argc, char **argv) {
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 
+    watchpoint_init();
     const bool profile = std::getenv("P2_PROFILE") != nullptr;
     if (profile) profiler_start();
     int status = 0;
