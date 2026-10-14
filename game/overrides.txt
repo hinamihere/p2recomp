@@ -1,0 +1,5 @@
+# Guest functions replaced by hand-written host code (game/src/native_funcs.cpp).
+# Fed to the code generator by tools/regen.sh; one entry address per line.
+08807918  # pad_held
+0880792C  # pad_pressed
+08807C58  # get_map_flag

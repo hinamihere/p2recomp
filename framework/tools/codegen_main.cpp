@@ -935,6 +935,11 @@ void emit_target(std::ostringstream &body, std::uint32_t target,
 }
 
 
+// P2_OVERRIDES=<file>: guest function entries (hex, one per line, '#' comments) whose body is
+// replaced by a host function p2_native_<ADDR>. The original body stays reachable through
+// recomp_orig_<ADDR> for differential testing (see game/src/native.cpp).
+std::set<std::uint32_t> g_overrides;
+
 struct GeneratedFunctionInput {
     std::string name;
     std::uint32_t address{};
@@ -946,10 +951,25 @@ struct GeneratedFunctionInput {
     const std::set<std::uint32_t> *import_stubs{};
 };
 
+std::size_t next_id_for_overrides(const GeneratedFunctionInput &function) { return function.entry_labels.size() + 1u; }
+
 std::string emit_function_source(const GeneratedFunctionInput &function,
                                  const psprecomp::GuestMemory &memory,
                                  const std::string &cpp_name) {
     std::ostringstream body;
+
+    std::vector<std::uint32_t> overridden;
+    for (const auto label : function.entry_labels)
+        if (g_overrides.contains(label)) overridden.push_back(label);
+    if (!overridden.empty()) {
+        body << "extern std::uint32_t g_p2_native_mode;\n"
+             << "void p2_native_slow(Runtime &, AllegrexContext &, std::uint32_t, void (*)(Runtime &, AllegrexContext &), void (*)(Runtime &, AllegrexContext &));\n";
+        for (const auto label : overridden) {
+            const std::string hex = psprecomp::hex32(label).substr(2);
+            body << "void p2_native_" << hex << "(Runtime &, AllegrexContext &);\n"
+                 << "void recomp_orig_" << hex << "(Runtime &, AllegrexContext &);\n";
+        }
+    }
 
     // Unit entry dispatch.  A `switch (ctx.pc)` over several hundred sparse
     // guest addresses compiles to a branch tree, and every outer dispatch pays
@@ -998,6 +1018,10 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
             body << "    case " << id_by_label[label] << "u: goto L_"
                  << psprecomp::hex32(label).substr(2) << ";\n";
         }
+        for (std::size_t i = 0; i < overridden.size(); ++i) {
+            body << "    case " << (next_id_for_overrides(function) + i) << "u: goto LORIG_"
+                 << psprecomp::hex32(overridden[i]).substr(2) << ";\n";
+        }
         body << "    default:\n"
              << "        if (local_transfers == 0u) rt.unsupported(ctx.pc, 0u, \"invalid internal function entry\");\n"
              // Local transfers advance local_pc without touching AllegrexContext.
@@ -1012,6 +1036,7 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
              << "    }\n"
              << "    }\n";
     } else {
+        if (!overridden.empty()) throw psprecomp::Error("P2_OVERRIDES needs dense unit dispatch");
         body << "void " << cpp_name << "_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {\n"
              << "    (void)direct_entry_id;\n"
              << "    std::uint32_t jump_target = 0u;\n"
@@ -1038,6 +1063,18 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
 
     for (const auto block_start : function.entry_labels) {
         body << "L_" << psprecomp::hex32(block_start).substr(2) << ":\n";
+        if (g_overrides.contains(block_start)) {
+            const std::string hex = psprecomp::hex32(block_start).substr(2);
+            body << "    if (__builtin_expect(g_p2_native_mode != 0u, 0)) p2_native_slow(rt, ctx, " << psprecomp::hex32(block_start)
+                 << "u, &p2_native_" << hex << ", &recomp_orig_" << hex << ");\n"
+                 << "    else p2_native_" << hex << "(rt, ctx);\n"
+                 << "    jump_target = ctx.gpr[31];\n"
+                 << "    local_pc = jump_target;\n"
+                 << "    if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }\n"
+                 << "    ctx.pc = jump_target;\n"
+                 << "    return;\n"
+                 << "LORIG_" << hex << ":\n";
+        }
         std::uint32_t pc = block_start;
         while (function.instructions.contains(pc)) {
             if (pc != block_start && function.entry_labels.contains(pc)) {
@@ -1191,6 +1228,11 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
     body << "void " << cpp_name << "(Runtime &rt, AllegrexContext &ctx) {\n"
          << "    auto aot_mem = rt.memory().aot_fast_view();\n"
          << "    " << cpp_name << "_entry(rt, ctx, 0u, aot_mem);\n}\n\n";
+    for (std::size_t i = 0; i < overridden.size(); ++i) {
+        body << "void recomp_orig_" << psprecomp::hex32(overridden[i]).substr(2) << "(Runtime &rt, AllegrexContext &ctx) {\n"
+             << "    auto aot_mem = rt.memory().aot_fast_view();\n"
+             << "    " << cpp_name << "_entry(rt, ctx, " << (next_id_for_overrides(function) + i) << "u, aot_mem);\n}\n\n";
+    }
     return body.str();
 }
 
@@ -1661,6 +1703,18 @@ int generate_auto(const std::filesystem::path &elf_path,
 
 int main(int argc, char **argv) {
     try {
+        if (const char *overrides = std::getenv("P2_OVERRIDES")) {
+            std::ifstream list(overrides);
+            if (!list) throw psprecomp::Error(std::string("Cannot open P2_OVERRIDES file ") + overrides);
+            std::string line;
+            while (std::getline(list, line)) {
+                const auto hash = line.find('#');
+                if (hash != std::string::npos) line.resize(hash);
+                std::istringstream fields(line);
+                std::string address;
+                if (fields >> address) g_overrides.insert(static_cast<std::uint32_t>(std::stoul(address, nullptr, 16)));
+            }
+        }
         if (argc >= 4 && std::string_view(argv[2]) == "--auto") {
             if (argc > 6) {
                 std::cerr << "Usage: psp_recomp <ELF> --auto <generated_dir> [load_base_hex] [unit_span_bytes]\n";

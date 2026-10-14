@@ -12,6 +12,7 @@
 #include "io.hpp"
 #include "kernel.hpp"
 #include "mpeg.hpp"
+#include "native.hpp"
 #include "sas.hpp"
 #include "savedata.hpp"
 
@@ -190,6 +191,7 @@ int run(int argc, char **argv) {
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 
     watchpoint_init();
+    native_init();
     const bool profile = std::getenv("P2_PROFILE") != nullptr;
     if (profile) profiler_start();
     int status = 0;
@@ -201,6 +203,7 @@ int run(int argc, char **argv) {
         status = 2;
     }
     if (profile) profiler_stop();
+    native_report();
     if (std::getenv("PSPRECOMP_HLE_HISTOGRAM") != nullptr) r.report_hle_histogram(30u);
     if (r.stop_reason() != "window closed" && r.stop_reason() != "sceKernelExitGame" && r.stop_reason() != "exit-after reached") {
         LOG_E("boot", "thread state at stop (current uid=%x):", g_kernel.current_uid());
