@@ -40,8 +40,9 @@ function-by-function with hand-written C as a non-matching decomp.
 
 Functions can be rewritten by hand and swapped in one at a time while the rest stays recompiled.
 
-1. Write the replacement in `game/src/native_funcs.cpp` as `psprecomp::p2_native_<ADDR>(Runtime &, AllegrexContext &)`
-   (guest ABI: arguments in a0.., result in v0; no thread switches; `guest_call()` runs other guest functions).
+1. Write the replacement in `game/src/native_funcs.cpp` as an ordinary typed C++ function (guest structs are plain structs read
+   through `guest<T>()`, fixed addresses are `Global<T, addr>` variables) and bind it with `P2_NATIVE(<ADDR>, function)`:
+   arguments come from a0.. by their C++ types, the result goes to v0. No thread switches; `guest_call()` runs other guest functions.
 2. List the entry address in `game/overrides.txt` and run `tools/regen.sh` (it passes the list to the code
    generator as `P2_OVERRIDES`). Only the units that contain a listed entry are rewritten.
 3. The generated entry now calls the host function and then returns through `$ra`; every kind of call (same unit,

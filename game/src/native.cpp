@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <set>
 #include <random>
 #include <vector>
 
@@ -30,6 +31,10 @@ std::vector<Registered> &registry() {
 }
 
 std::map<u32, Stats> g_stats;
+std::set<u32> &void_functions() {
+    static std::set<u32> set;
+    return set;
+}
 u64 g_limit = 300;
 bool g_strict = false;
 std::vector<u8> g_before, g_after;
@@ -63,7 +68,8 @@ bool compare_state(u32 addr, const AllegrexContext &want, const AllegrexContext 
         ok = false;
         LOG_E("native", "%08x MISMATCH %s%d: original %08x native %08x", addr, what, index, w, g);
     };
-    for (int i : kChecked) if (!same_reg(want, got, i)) report("r", i, want.gpr[i], got.gpr[i]);
+    const bool has_result = !void_functions().contains(addr);
+    for (int i : kChecked) if ((i != 2 || has_result) && !same_reg(want, got, i)) report("r", i, want.gpr[i], got.gpr[i]);
     if (g_strict)
         for (int i = 1; i < 32; ++i)
             if (!same_reg(want, got, i)) report("strict r", i, want.gpr[i], got.gpr[i]);
@@ -118,6 +124,27 @@ bool verify_call(Runtime &r, AllegrexContext &c, u32 addr, void (*native)(Runtim
 }
 
 } // namespace
+
+namespace detail {
+VoidMark::VoidMark(u32 address) { void_functions().insert(address); }
+} // namespace detail
+
+void *guest_raw(u32 address, std::size_t size) {
+    if (void *p = mem().raw_pointer(address, size)) return p;
+    alignas(16) static u8 dummy[4096];
+    LOG_E("native", "bad guest address %08x (%zu bytes) in native code", address, size);
+    rt().stop("bad guest pointer in native code");
+    return dummy;
+}
+
+u32 guest_address(const void *host) {
+    const auto *p = static_cast<const u8 *>(host);
+    const u8 *ram = mem().raw_pointer(kRamBase, 1);
+    if (p >= ram && p < ram + mem().size()) return kRamBase + static_cast<u32>(p - ram);
+    const u8 *vram = mem().raw_pointer(0x04000000u, 1);
+    if (vram && p >= vram && p < vram + mem().vram_size()) return 0x04000000u + static_cast<u32>(p - vram);
+    return 0;
+}
 
 bool guest_call(Runtime &r, AllegrexContext &c, u32 address) {
     if (!r.has_function(address)) {
