@@ -36,6 +36,23 @@ section), which is not publicly available, so a byte-matching C decompilation ca
 Static recompilation gives a working native program now; the recompiled code can later be replaced
 function-by-function with hand-written C as a non-matching decomp.
 
+## Hybrid decompilation (host replacements for guest functions)
+
+Functions can be rewritten by hand and swapped in one at a time while the rest stays recompiled.
+
+1. Write the replacement in `game/src/native_funcs.cpp` as `psprecomp::p2_native_<ADDR>(Runtime &, AllegrexContext &)`
+   (guest ABI: arguments in a0.., result in v0; no thread switches; `guest_call()` runs other guest functions).
+2. List the entry address in `game/overrides.txt` and run `tools/regen.sh` (it passes the list to the code
+   generator as `P2_OVERRIDES`). Only the units that contain a listed entry are rewritten.
+3. The generated entry now calls the host function and then returns through `$ra`; every kind of call (same unit,
+   cross unit, indirect) takes the same path. The original body stays reachable as `recomp_orig_<ADDR>`.
+4. Verify: `P2_NATIVE=verify` runs original and replacement on identical state (registers and all of RAM are
+   compared, mismatches are logged and the original's result is kept); `P2_NATIVE=off` runs the original only;
+   `P2_NATIVE_VERIFY_LIMIT` / `P2_NATIVE_STRICT` tune it. `tools/callgraph.py` lists leaf functions and callers.
+
+Replaced so far: `pad_held`, `pad_pressed` (controller helpers) and a map-flag getter. `tools/mapgraph.py` dumps
+the town-map graph (nodes, edges, angles) from a savestate, the data the map-cursor code works on.
+
 ## Layout
 
 | Path | What |
