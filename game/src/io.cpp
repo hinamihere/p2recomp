@@ -73,7 +73,7 @@ Device parse_path(const std::string &psp_path, std::string &relative) {
 }
 
 fs::path host_path(Device dev, const std::string &relative) {
-    return (dev == Device::Disc ? g_config.disc_root : g_config.ms_root) / fs::u8path(relative);
+    return (dev == Device::Disc ? g_config.disc_root : g_config.ms_root) / fs::path(reinterpret_cast<const char8_t *>(relative.c_str()));
 }
 
 bool parse_lbn(const std::string &relative, u64 &lbn, u64 &size) {

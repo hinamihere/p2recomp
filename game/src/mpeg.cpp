@@ -88,10 +88,6 @@ Context *ctx_for(u32 mpeg_addr) {
 
 // --- program stream demux --------------------------------------------------------
 
-s64 read_pts(const u8 *p) {
-    return (s64(p[0] & 0x0E) << 29) | (s64(p[1]) << 22) | (s64(p[2] & 0xFE) << 14) | (s64(p[3]) << 7) | (s64(p[4]) >> 1);
-}
-
 // Demuxes one 2048-byte pack into the elementary stream buffers.
 void demux_pack(Context &c, const std::vector<u8> &pack) {
     std::size_t i = 0;
