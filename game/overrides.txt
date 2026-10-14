@@ -7,3 +7,11 @@
 08807AC4  # pad_mapped_b (copy)
 088079AC  # pad_dir_a
 08807B08  # pad_dir_b
+08851C30  # rand
+08863DF4  # vec3_mul_mat3
+088FE140  # pool_count_flagged
+088FDF74  # pool_init
+08866818  # sin_table
+08866850  # cos_table
+08963E4C  # get_pool_ptr
+088A0508  # get_map_slot

@@ -61,7 +61,47 @@ void native_fuzz_setup(u32 address, std::mt19937 &rng, AllegrexContext &c) {
     default: break;                                    // fully random
     }
     mem().store32(0x08CA29DCu, rng());
-    (void)address;
+
+    // Scratch buffers for pointer arguments: random bytes, three disjoint areas.
+    constexpr u32 kScratch = 0x09E00000u;
+    auto fill = [&](u32 base, u32 bytes) {
+        for (u32 i = 0; i < bytes; i += 4) mem().store32(base + i, rng());
+    };
+    switch (address) {
+    case 0x08851C30u:
+        mem().store32(0x08E34150u, (rng() & 7u) == 0u ? 0u : rng());
+        break;
+    case 0x08863DF4u:
+        fill(kScratch, 0x300);
+        c.gpr[4] = kScratch;
+        c.gpr[5] = kScratch + 0x100;
+        c.gpr[6] = (rng() & 3u) == 0u ? kScratch + 0x100 : kScratch + 0x200; // sometimes in place
+        break;
+    case 0x088FE140u:
+        fill(kScratch, 0x400);
+        mem().store16(kScratch, rng() % 12u);
+        mem().store16(kScratch + 2, 2u * (1 + rng() % 16u));
+        c.gpr[4] = kScratch;
+        break;
+    case 0x088FDF74u:
+        fill(kScratch, 0x400);
+        c.gpr[4] = kScratch;
+        c.gpr[5] = static_cast<u32>(static_cast<s32>(rng() % 24u) - 3);
+        c.gpr[6] = 2u * (1 + rng() % 16u);
+        break;
+    case 0x08866818u:
+    case 0x08866850u:
+        fill(0x08BB6584u, 4096u * 4u);
+        break;
+    case 0x08963E4Cu:
+        mem().store32(0x08CE2CF4u, rng());
+        break;
+    case 0x088A0508u:
+        c.gpr[4] &= 0x3Fu;
+        fill(0x08E4452Cu, 0x100);
+        break;
+    default: break;
+    }
 }
 
 } // namespace p2
@@ -100,6 +140,77 @@ void p2_native_08807B08(Runtime &, AllegrexContext &c) {
     const p2::u32 mask = c.gpr[4];
     c.gpr[2] = (!dpad_blocked(mask) && (mapped_buttons(kFlagsB) & mask) != 0u) ? 1u : 0u;
 }
+
+// 08851C30: u32 rand() -- the game's random number generator (31-bit result, state word at 08E34150).
+void p2_native_08851C30(Runtime &, AllegrexContext &c) {
+    constexpr p2::u32 kSeed = 0x08E34150u;
+    const p2::u32 seed = p2::mem().load32(kSeed);
+    const p2::u32 t = seed * 41u;
+    const p2::u32 hi = t >> 16;
+    const p2::u32 next = seed == 0u ? 0x2A6D365Au : (hi | ((t + hi) << 16));
+    p2::mem().store32(kSeed, next);
+    c.gpr[2] = next >> 1;
+}
+
+// 08863DF4: s16 *vec3_mul_mat3(const s16 m[9], const s16 v[3], s16 out[3]) -- out = v * m in 4.12 fixed
+// point (rows of m are the basis vectors; the sums wrap at 32 bits like the original mult/madd chain).
+void p2_native_08863DF4(Runtime &, AllegrexContext &c) {
+    auto s16at = [](p2::u32 a) { return static_cast<p2::s32>(static_cast<p2::s16>(p2::mem().load16(a))); };
+    p2::s32 m[9], v[3];
+    for (int i = 0; i < 9; ++i) m[i] = s16at(c.gpr[4] + 2u * i);
+    for (int i = 0; i < 3; ++i) v[i] = s16at(c.gpr[5] + 2u * i);
+    for (int col = 0; col < 3; ++col) {
+        const p2::u32 sum = static_cast<p2::u32>(v[0] * m[col]) + static_cast<p2::u32>(v[1] * m[3 + col]) +
+                            static_cast<p2::u32>(v[2] * m[6 + col]);
+        p2::mem().store16(c.gpr[6] + 2u * col, static_cast<p2::u16>(static_cast<p2::s32>(sum) >> 12));
+    }
+    c.gpr[2] = c.gpr[6];
+}
+
+// 088FE140: int pool_count_flagged(pool) -- pool = {s16 count, s16 stride, ..., slots from +0x10};
+// counts the slots whose first halfword has bit 0 set.
+void p2_native_088FE140(Runtime &, AllegrexContext &c) {
+    const p2::u32 pool = c.gpr[4];
+    const p2::s32 count = static_cast<p2::s16>(p2::mem().load16(pool));
+    p2::u32 flagged = 0;
+    if (count > 0) {
+        const p2::s32 stride = static_cast<p2::s16>(p2::mem().load16(pool + 2));
+        p2::u32 slot = pool + 16;
+        for (p2::s32 i = 0; i < count; ++i, slot += static_cast<p2::u32>(stride)) flagged += p2::mem().load16(slot) & 1u;
+    }
+    c.gpr[2] = flagged;
+}
+
+// 088FDF74: void pool_init(pool, s16 count, s16 stride, a3, t0) -- header {count, stride, 0, a3, t0}, then
+// clears the first halfword of each slot. Returns (by accident) the address past the last slot.
+void p2_native_088FDF74(Runtime &, AllegrexContext &c) {
+    const p2::u32 pool = c.gpr[4];
+    const p2::s32 count = static_cast<p2::s16>(c.gpr[5]);
+    const p2::s32 stride = static_cast<p2::s16>(c.gpr[6]);
+    p2::mem().store32(pool + 0xC, c.gpr[8]);
+    p2::mem().store32(pool + 8, c.gpr[7]);
+    p2::mem().store16(pool, static_cast<p2::u16>(count));
+    p2::mem().store16(pool + 2, static_cast<p2::u16>(stride));
+    p2::mem().store32(pool + 4, 0);
+    p2::u32 slot = pool + 16;
+    for (p2::s32 i = 0; i < count; ++i, slot += static_cast<p2::u32>(stride)) p2::mem().store16(slot, 0);
+    c.gpr[2] = slot;
+}
+
+// 08866818 / 08866850: s32 sin_table(angle) / cos_table(angle) -- 12-bit angle, 4.12 fixed-point result from a
+// table of 16-bit entries (values with bit 15 set encode negative numbers as 0x8000 | (0x1000 + x)).
+p2::u32 trig_entry(p2::u32 angle, p2::u32 offset) {
+    const p2::u32 v = p2::mem().load16(0x08BB6584u + (angle & 0xFFFu) * 4u + offset);
+    return v > 0x7FFFu ? (v & 0xFFFu) - 0x1000u : v;
+}
+void p2_native_08866818(Runtime &, AllegrexContext &c) { c.gpr[2] = trig_entry(c.gpr[4], 0); }
+void p2_native_08866850(Runtime &, AllegrexContext &c) { c.gpr[2] = trig_entry(c.gpr[4], 2); }
+
+// 08963E4C: u32 get_pool_ptr() -- word at 08CE2CF4.
+void p2_native_08963E4C(Runtime &, AllegrexContext &c) { c.gpr[2] = p2::mem().load32(0x08CE2CF4u); }
+
+// 088A0508: u32 get_map_slot(i) -- i-th word of the array at 08E4452C.
+void p2_native_088A0508(Runtime &, AllegrexContext &c) { c.gpr[2] = p2::mem().load32(0x08E4452Cu + (c.gpr[4] << 2)); }
 
 // 08807C58: u32 get_map_flag() -- returns the word at 08CA29DC (read by the town-map code).
 void p2_native_08807C58(Runtime &, AllegrexContext &c) {
