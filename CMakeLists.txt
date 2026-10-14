@@ -40,7 +40,8 @@ target_include_directories(p2 PRIVATE "${SDL2_ROOT}/include" "${FFMPEG_ROOT}/inc
 target_link_directories(p2 PRIVATE "${SDL2_ROOT}/lib" "${FFMPEG_ROOT}/lib")
 target_link_libraries(p2 PRIVATE p2_generated psprecomp_core at3_standalone SDL2 avcodec avutil)
 target_compile_options(p2 PRIVATE -Wall -Wextra -Wno-unused-parameter -g)
-target_link_options(p2 PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+# Unoptimized generated code (-O0) has large frames in the chained guest calls: reserve a big stack.
+target_link_options(p2 PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic -Wl,--stack,134217728)
 file(GLOB FFMPEG_DLLS "${FFMPEG_ROOT}/bin/avcodec-*.dll" "${FFMPEG_ROOT}/bin/avutil-*.dll" "${FFMPEG_ROOT}/bin/swresample-*.dll")
 add_custom_command(TARGET p2 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SDL2_ROOT}/bin/SDL2.dll" ${FFMPEG_DLLS} "$<TARGET_FILE_DIR:p2>")

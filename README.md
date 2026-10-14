@@ -91,6 +91,12 @@ cmake -S . -B build/ascii -G Ninja -DCMAKE_BUILD_TYPE=Release -DP2_GENERATED_OPT
 cmake --build build/ascii --target p2
 ```
 
+Optimization level of the generated code (measured on one 16 KB unit / on 2500 frames of the field scene in turbo):
+`-O0` compiles in 6 s but runs about 9x slower (it also needs the 128 MB stack the link options reserve, or the
+chained guest calls overflow it); `-O1` compiles in 11 s and runs as fast as `-O2` (3.4 s vs 3.6 s); `-O2` takes
+22 s per unit. `-O1` is the sweet spot for development (a full build is roughly half of `-O2`'s ~10 minutes; linking
+is a fixed cost either way).
+
 ## Running
 
 Double-click `play.bat`, or:
