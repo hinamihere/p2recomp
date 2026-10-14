@@ -191,6 +191,7 @@ int run(int argc, char **argv) {
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 
     watchpoint_init();
+    readwatch_init();
     native_init();
     if (const char *fuzz = std::getenv("P2_NATIVE_FUZZ")) {
         native_fuzz(std::strtoull(fuzz, nullptr, 10));

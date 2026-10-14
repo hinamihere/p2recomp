@@ -3,6 +3,7 @@
 #include "ge.hpp"
 #include "savedata.hpp"
 #include "savestate.hpp"
+#include "watchpoint.hpp"
 
 #include "host.hpp"
 #include "kernel.hpp"
@@ -497,6 +498,7 @@ void on_vblank() {
         return;
     }
     K.set_turbo_key(host::fast_forward_held());
+    readwatch_tick();
     // P2_WATCH=<addr>[,<addr>...]: log these guest float32 values every vblank (debugging).
     static const std::vector<u32> watch = [] {
         std::vector<u32> v;

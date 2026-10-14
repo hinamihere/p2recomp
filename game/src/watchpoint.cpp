@@ -99,7 +99,73 @@ void watchpoint_init() {
     LOG_I("watch", "write watchpoints on %u words", static_cast<unsigned>(g_watches.size()));
 }
 
+
+// P2_READWATCH=<hex addr>,<hex length>: logs the first read or write of every 4 KB page in that guest range (the
+// pages are made inaccessible until touched), together with the guest registers at that moment. The return
+// address and arguments identify the guest function doing the access (e.g. a decompressor reading a loaded file).
+namespace {
+char *g_read_lo{}, *g_read_hi{};   // host range of the watched guest range (page aligned)
+char *g_read_host_start{};          // host address of the first watched guest byte
+u32 g_read_guest_start{};
+int g_read_logs{};
+bool g_read_armed{}, g_read_pending{};
+u64 g_read_at{};
+
+LONG CALLBACK read_handler(PEXCEPTION_POINTERS info) {
+    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+    char *addr = reinterpret_cast<char *>(info->ExceptionRecord->ExceptionInformation[1]);
+    if (addr < g_read_lo || addr >= g_read_hi) return EXCEPTION_CONTINUE_SEARCH;
+    char *page = reinterpret_cast<char *>(reinterpret_cast<uintptr_t>(addr) & ~(static_cast<uintptr_t>(g_page_size) - 1u));
+    DWORD old;
+    VirtualProtect(page, g_page_size, PAGE_READWRITE, &old);
+    if (g_read_logs++ < 80) {
+        const auto &c = rt().cpu();
+        const u32 guest = g_read_guest_start + static_cast<u32>(addr - g_read_host_start);
+        char line[400];
+        const int n = std::snprintf(line, sizeof(line),
+            "[readwatch] vblank %llu %s guest %08x: pc %08x ra %08x sp %08x a0-a3 %08x %08x %08x %08x v0 %08x thread %x\n",
+            static_cast<unsigned long long>(g_kernel.vblank_count()), info->ExceptionRecord->ExceptionInformation[0] == 0 ? "READ " : "WRITE",
+            guest, c.pc, c.gpr[31], c.gpr[29], c.gpr[4], c.gpr[5], c.gpr[6], c.gpr[7], c.gpr[2], static_cast<unsigned>(g_kernel.current_uid()));
+        DWORD written;
+        if (n > 0) WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, static_cast<DWORD>(n), &written, nullptr);
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+} // namespace
+
+void readwatch_init() {
+    const char *e = std::getenv("P2_READWATCH");
+    if (e == nullptr) return;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    g_page_size = si.dwPageSize;
+    char *end = nullptr;
+    const u32 start = static_cast<u32>(std::strtoul(e, &end, 16));
+    const u32 length = (end != nullptr && *end == ',') ? static_cast<u32>(std::strtoul(end + 1, nullptr, 16)) : 0x1000u;
+    g_read_host_start = reinterpret_cast<char *>(mem().raw_pointer(start, length));
+    if (g_read_host_start == nullptr) { LOG_E("watch", "bad read-watch range"); return; }
+    g_read_guest_start = start;
+    const uintptr_t mask = static_cast<uintptr_t>(g_page_size) - 1u;
+    g_read_lo = reinterpret_cast<char *>((reinterpret_cast<uintptr_t>(g_read_host_start) + mask) & ~mask); // whole pages inside the range only
+    g_read_hi = reinterpret_cast<char *>((reinterpret_cast<uintptr_t>(g_read_host_start) + length) & ~mask);
+    AddVectoredExceptionHandler(1, read_handler);
+    g_read_armed = false;
+    g_read_pending = true;
+    const char *at = std::getenv("P2_READWATCH_AT");
+    g_read_at = at ? std::strtoull(at, nullptr, 10) : 0u;
+    LOG_I("watch", "read/write watch on guest %08x, %u bytes will be armed at vblank %llu", start, length, static_cast<unsigned long long>(g_read_at));
+}
+
+// Called every vblank: arms the read watch once the requested vblank is reached (after a savestate load).
+void readwatch_tick() {
+    if (!g_read_pending || g_kernel.vblank_count() < g_read_at) return;
+    g_read_pending = false;
+    DWORD old;
+    VirtualProtect(g_read_lo, static_cast<SIZE_T>(g_read_hi - g_read_lo), PAGE_NOACCESS, &old);
+    LOG_I("watch", "read/write watch armed at vblank %llu", static_cast<unsigned long long>(g_kernel.vblank_count()));
+}
+
 } // namespace p2
 #else
-namespace p2 { void watchpoint_init() {} }
+namespace p2 { void watchpoint_init() {} void readwatch_init() {} void readwatch_tick() {} }
 #endif
