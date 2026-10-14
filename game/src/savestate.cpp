@@ -10,7 +10,7 @@ namespace p2 {
 namespace {
 
 constexpr u32 kMagic = 0x53533250u; // "P2SS"
-constexpr u32 kVersion = 3u;
+constexpr u32 kVersion = 4u;
 constexpr u32 kRamBase = 0x08000000u, kRamSize = 32u * 1024u * 1024u;
 constexpr u32 kVramBase = 0x04000000u, kVramSize = 2u * 1024u * 1024u;
 
@@ -23,6 +23,7 @@ int g_scheduled_load_slot = -1;
 u64 g_scheduled_load_vblank = 0;
 u64 g_blocked_since = 0;
 bool g_at_hle_return = false;
+u32 g_load_version = 0;
 
 std::filesystem::path slot_path(int slot) { return g_dir / ("slot" + std::to_string(slot) + ".p2s"); }
 
@@ -87,7 +88,7 @@ bool do_load(int slot) {
     const char *refused = nullptr;
     if (r.buf.size() < 20u) refused = "not a savestate";
     else if (r.pod<u32>() != kMagic) refused = "not a savestate";
-    else if (r.pod<u32>() != kVersion) refused = "made by another version";
+    else if ((g_load_version = r.pod<u32>()) < 3u || g_load_version > kVersion) refused = "made by another version";
     else if (r.pod<u32>() != g_kernel.module_gp()) refused = "made for a different executable";
     if (refused != nullptr) {
         LOG_W("state", "slot %d: %s", slot, refused);
@@ -144,6 +145,7 @@ void savestate_service_at_hle_return() {
 }
 
 bool savestate_at_hle_return() { return g_at_hle_return; }
+u32 savestate_load_version() { return g_load_version; }
 
 bool savestate_service() {
     if (g_scheduled_slot >= 0 && g_kernel.vblank_count() >= g_scheduled_vblank) {

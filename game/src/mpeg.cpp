@@ -51,11 +51,12 @@ struct Context {
 
     std::deque<std::vector<u8>> packs; // received, not yet demuxed
     std::vector<u8> video_es;
+    std::vector<u8> param_sets; // latest SPS/PPS NAL units (Annex B), resent to a recreated decoder
+    bool decoder_fresh{true};   // nothing sent to the current decoder yet
     std::vector<u8> audio_es;
     u64 packs_demuxed{};
 
     AVCodecContext *avc{};
-    AVCodecParserContext *parser{};
     AVFrame *frame{};
     AVPacket *packet{};
     bool have_frame{};
@@ -70,7 +71,6 @@ struct Context {
     u32 next_stream{1};
 
     ~Context() {
-        if (parser != nullptr) av_parser_close(parser);
         if (avc != nullptr) avcodec_free_context(&avc);
         if (frame != nullptr) av_frame_free(&frame);
         if (packet != nullptr) av_packet_free(&packet);
@@ -151,48 +151,110 @@ bool stream_complete(const Context &c) { return c.stream_size != 0u && c.bytes_r
 
 void ensure_video(Context &c) {
     if (c.avc != nullptr) return;
-    av_log_set_level(AV_LOG_FATAL); // truncated streams (skipped movies) are expected
+    // Truncated streams (skipped movies) are expected; P2_FFMPEG_LOG=1 shows decoder messages.
+    av_log_set_level(std::getenv("P2_FFMPEG_LOG") != nullptr ? AV_LOG_WARNING : AV_LOG_FATAL);
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     c.avc = avcodec_alloc_context3(codec);
     avcodec_open2(c.avc, codec, nullptr);
-    c.parser = av_parser_init(AV_CODEC_ID_H264);
     c.frame = av_frame_alloc();
     c.packet = av_packet_alloc();
 }
 
+// Offset of the next access unit delimiter (start code + NAL type 9) at or after `from`,
+// or npos. PSP movie streams begin every picture with one.
+std::size_t find_aud(const std::vector<u8> &es, std::size_t from) {
+    for (std::size_t i = from; i + 3 < es.size(); ++i) {
+        if (es[i] == 0 && es[i + 1] == 0 && es[i + 2] == 1 && (es[i + 3] & 0x1Fu) == 9u) return i;
+    }
+    return std::string::npos;
+}
+
+void log_picture_crc(const Context &c) {
+    // P2_MPEG_DUMP also logs a checksum of every decoded picture (luma plane).
+    static const bool crc = std::getenv("P2_MPEG_DUMP") != nullptr;
+    if (!crc) return;
+    u32 h = 2166136261u;
+    for (int y = 0; y < c.frame->height; ++y) {
+        const u8 *row = c.frame->data[0] + static_cast<std::ptrdiff_t>(y) * c.frame->linesize[0];
+        for (int x = 0; x < c.frame->width; ++x) h = (h ^ row[x]) * 16777619u;
+    }
+    LOG_I("mpeg", "picture %lld crc %08x", static_cast<long long>(c.video_frames), h);
+}
+
+// Remembers the SPS/PPS NAL units of an access unit.
+void collect_param_sets(Context &c, const u8 *data, std::size_t size) {
+    std::vector<u8> found;
+    for (std::size_t i = 0; i + 3 < size; ++i) {
+        if (data[i] != 0 || data[i + 1] != 0 || data[i + 2] != 1) continue;
+        const u32 type = data[i + 3] & 0x1Fu;
+        if (type != 7u && type != 8u) continue;
+        std::size_t j = i + 3;
+        while (j + 2 < size && !(data[j] == 0 && data[j + 1] == 0 && (data[j + 2] == 1 || data[j + 2] == 0))) ++j;
+        if (j + 2 >= size) j = size;
+        found.insert(found.end(), data + i, data + j);
+        i = j - 1;
+    }
+    if (!found.empty()) c.param_sets = std::move(found);
+}
+
+void send_au(Context &c, const u8 *data, std::size_t size) {
+    collect_param_sets(c, data, size);
+    std::vector<u8> joined;
+    if (c.decoder_fresh && !c.param_sets.empty()) {
+        // A decoder recreated mid-stream (savestate load) has not seen the parameter sets.
+        joined = c.param_sets;
+        joined.insert(joined.end(), data, data + size);
+        data = joined.data();
+        size = joined.size();
+    }
+    c.decoder_fresh = false;
+    c.packet->data = const_cast<u8 *>(data);
+    c.packet->size = static_cast<int>(size);
+    const int sent = avcodec_send_packet(c.avc, c.packet);
+    if (sent < 0) LOG_W("mpeg", "decoder rejected a picture (%d)", sent);
+}
+
 // Decodes the next picture. Returns false when no more pictures can be produced now.
+//
+// Access units are cut at the access unit delimiters ourselves rather than with
+// libavcodec's H.264 parser: fed the whole buffered stream at once, the parser returned
+// the second picture first, dropping the SPS/PPS and keyframe of the first one (the
+// decoder then rejected ~45 pictures and damaged later ones that referenced them).
 bool decode_video_frame(Context &c) {
     ensure_video(c);
     for (int guard = 0; guard < 4096; ++guard) {
-        if (avcodec_receive_frame(c.avc, c.frame) == 0) { c.have_frame = true; ++c.video_frames; return true; }
-        // Feed more data through the parser.
-        if (c.video_es.empty() && !demux_more(c)) {
-            if (stream_complete(c)) {
-                // Drain the decoder at the end of the stream.
-                avcodec_send_packet(c.avc, nullptr);
-                if (avcodec_receive_frame(c.avc, c.frame) == 0) { c.have_frame = true; ++c.video_frames; return true; }
-                c.video_end = true;
-            }
-            return false;
+        if (avcodec_receive_frame(c.avc, c.frame) == 0) {
+            c.have_frame = true;
+            ++c.video_frames;
+            log_picture_crc(c);
+            return true;
         }
-        if (c.video_es.empty()) continue;
-        u8 *out = nullptr;
-        int out_size = 0;
-        const int used = av_parser_parse2(c.parser, c.avc, &out, &out_size, c.video_es.data(), static_cast<int>(c.video_es.size()),
-                                          AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
-        c.video_es.erase(c.video_es.begin(), c.video_es.begin() + used);
-        if (out_size > 0) {
-            c.packet->data = out;
-            c.packet->size = out_size;
-            avcodec_send_packet(c.avc, c.packet);
-        } else if (used == 0 && c.packs.empty()) {
-            if (stream_complete(c)) {
-                // Flush the parser's final picture.
-                av_parser_parse2(c.parser, c.avc, &out, &out_size, nullptr, 0, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
-                if (out_size > 0) { c.packet->data = out; c.packet->size = out_size; avcodec_send_packet(c.avc, c.packet); continue; }
-            }
-            return false;
+        // A complete access unit runs from one delimiter to the next.
+        const std::size_t first = find_aud(c.video_es, 0);
+        if (first != std::string::npos && first > 0) c.video_es.erase(c.video_es.begin(), c.video_es.begin() + first);
+        const std::size_t next = first == std::string::npos ? first : find_aud(c.video_es, 4);
+        if (next != std::string::npos) {
+            send_au(c, c.video_es.data(), next);
+            c.video_es.erase(c.video_es.begin(), c.video_es.begin() + static_cast<std::ptrdiff_t>(next));
+            continue;
         }
+        if (demux_more(c)) continue;
+        if (!stream_complete(c)) return false;
+        // End of stream: the last picture has no delimiter after it.
+        if (!c.video_es.empty()) {
+            send_au(c, c.video_es.data(), c.video_es.size());
+            c.video_es.clear();
+            continue;
+        }
+        avcodec_send_packet(c.avc, nullptr);
+        if (avcodec_receive_frame(c.avc, c.frame) == 0) {
+            c.have_frame = true;
+            ++c.video_frames;
+            log_picture_crc(c);
+            return true;
+        }
+        c.video_end = true;
+        return false;
     }
     return false;
 }
@@ -368,6 +430,7 @@ void MpegRegistStream(AllegrexContext &c) {
 }
 
 void MpegUnRegistStream(AllegrexContext &c) {
+    LOG_I("mpeg", "unregist stream %08x", arg(c, 1));
     Context *ctx = ctx_for(arg(c, 0));
     if (ctx != nullptr) ctx->streams.erase(arg(c, 1));
     ret(c, 0u);
@@ -392,6 +455,7 @@ void MpegQueryAtracEsSize(AllegrexContext &c) {
 
 void MpegFlushAllStream(AllegrexContext &c) {
     Context *ctx = ctx_for(arg(c, 0));
+    LOG_I("mpeg", "flush all streams (%u packs, %u video bytes dropped)", ctx ? static_cast<unsigned>(ctx->packs.size()) : 0u, ctx ? static_cast<unsigned>(ctx->video_es.size()) : 0u);
     if (ctx != nullptr) {
         ctx->packs.clear();
         ctx->video_es.clear();
@@ -418,12 +482,16 @@ void ring_put_round(u32 ring, u32 write_offset, s32 remaining, u32 total, u32 v0
     const u32 packets = m.load32(ring + RB_PACKETS);
     Context *ctx = ctx_for(m.load32(ring + RB_MPEG));
     const s32 added = static_cast<s32>(v0);
+    if (added <= 0) LOG_I("mpeg", "ring callback returned %d", added);
     if (added > 0 && ctx != nullptr) {
         const u32 data = m.load32(ring + RB_DATA);
         for (s32 i = 0; i < added; ++i) {
             const u32 slot = (write_offset + static_cast<u32>(i)) % packets;
             const u8 *src = m.raw_pointer(data + slot * 2048u, 2048u);
             if (src != nullptr) ctx->packs.emplace_back(src, src + 2048);
+            // P2_MPEG_DUMP=<file>: append every received pack (debugging the stream feed).
+            static std::FILE *dump = [] { const char *e = std::getenv("P2_MPEG_DUMP"); return e ? std::fopen(e, "wb") : nullptr; }();
+            if (dump != nullptr && src != nullptr) { std::fwrite(src, 1, 2048, dump); std::fflush(dump); }
         }
         ctx->bytes_received += static_cast<u64>(added) * 2048u;
         m.store32(ring + RB_READ, m.load32(ring + RB_READ) + static_cast<u32>(added));
@@ -494,11 +562,15 @@ void MpegAvcDecodeYCbCr(AllegrexContext &c) {
 }
 
 void MpegAvcDecodeStopYCbCr(AllegrexContext &c) {
+    LOG_I("mpeg", "avc decode stop");
     if (arg(c, 2) != 0u) mem().store32(arg(c, 2), 0u);
     ret(c, 0u);
 }
 
-void MpegAvcDecodeFlush(AllegrexContext &c) { ret(c, 0u); }
+void MpegAvcDecodeFlush(AllegrexContext &c) {
+    LOG_I("mpeg", "avc decode flush");
+    ret(c, 0u);
+}
 
 void MpegAvcQueryYCbCrSize(AllegrexContext &c) {
     const u32 w = arg(c, 2), h = arg(c, 3);
@@ -597,6 +669,7 @@ void mpeg_save(StateWriter &w) {
         w.pod(static_cast<u32>(c->packs.size()));
         for (const auto &p : c->packs) w.vec(p);
         w.vec(c->video_es); w.vec(c->audio_es); w.pod(c->packs_demuxed);
+        w.vec(c->param_sets);
         w.pod(c->video_frames); w.pod(c->video_end); w.pod(c->audio_frames); w.vec(c->audio_pcm);
         w.pod(static_cast<u32>(c->streams.size()));
         for (const auto &[id, type] : c->streams) { w.pod(id); w.pod(type); }
@@ -614,6 +687,7 @@ void mpeg_load(StateReader &r) {
         r.pod(c->stream_offset); r.pod(c->stream_size); r.pod(c->first_ts); r.pod(c->bytes_received);
         for (u32 k = r.pod<u32>(); k > 0; --k) { std::vector<u8> p; r.vec(p); c->packs.push_back(std::move(p)); }
         r.vec(c->video_es); r.vec(c->audio_es); r.pod(c->packs_demuxed);
+        if (savestate_load_version() >= 4u) r.vec(c->param_sets);
         r.pod(c->video_frames); r.pod(c->video_end); r.pod(c->audio_frames); r.vec(c->audio_pcm);
         for (u32 k = r.pod<u32>(); k > 0; --k) { const u32 id = r.pod<u32>(); c->streams[id] = r.pod<u32>(); }
         r.pod(c->next_stream);

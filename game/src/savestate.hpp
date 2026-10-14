@@ -112,5 +112,7 @@ bool savestate_requested();
 // Services a request right after an import returned: the saved thread resumes at ra.
 void savestate_service_at_hle_return();
 bool savestate_at_hle_return();
+// Format version of the state being loaded (for reading older states).
+u32 savestate_load_version();
 
 } // namespace p2

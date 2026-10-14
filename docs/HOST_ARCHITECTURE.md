@@ -70,8 +70,11 @@ are drawn immediately.
 ## Movies (`mpeg.cpp`)
 
 `sceMpegRingbufferPut` calls the game's read callback as nested guest code; every 2048-byte pack
-it wrote is copied and demuxed by a small MPEG-PS parser. Video is decoded with FFmpeg's H.264
-decoder and converted to RGBA in `sceMpegAvcCsc`; ATRAC3+ audio uses the same decoder as BGM.
+it wrote is copied and demuxed by a small MPEG-PS parser. Access units are cut at the H.264
+access unit delimiters (libavcodec's parser dropped the first picture with the SPS/PPS when fed a
+large buffer), decoded with FFmpeg's H.264 decoder (bit-identical to the `ffmpeg` CLI) and
+converted to RGBA in `sceMpegAvcCsc`; ATRAC3+ audio uses the same decoder as BGM. The latest
+SPS/PPS are kept (also in savestates) and resent to a decoder recreated mid-stream.
 
 ## Files and saves (`io.cpp`, `savedata.cpp`)
 
@@ -85,8 +88,7 @@ A state is guest RAM (32 MiB) and VRAM verbatim plus a section per host module, 
 that module next to its own state: kernel objects and thread contexts, GE lists and registers,
 display/controller, audio channel setup (queued samples are dropped), SAS voices and reverb,
 ATRAC streams, MPEG contexts, open files (reopened by path), utility dialogs. FFmpeg and ATRAC
-decoders are recreated; ATRAC loses one frame of overlap history, a movie a few pictures until
-the next keyframe.
+decoders are recreated; ATRAC loses one frame of overlap history.
 
 Requests (F5/F8, `--load-state`, ...) are serviced only where no native frame of guest code is
 half way through something: the post-dispatch hook, the starvation boundary, the kernel idle loop
