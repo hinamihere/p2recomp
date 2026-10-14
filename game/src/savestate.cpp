@@ -10,7 +10,7 @@ namespace p2 {
 namespace {
 
 constexpr u32 kMagic = 0x53533250u; // "P2SS"
-constexpr u32 kVersion = 4u;
+constexpr u32 kVersion = 5u;
 constexpr u32 kRamBase = 0x08000000u, kRamSize = 32u * 1024u * 1024u;
 constexpr u32 kVramBase = 0x04000000u, kVramSize = 2u * 1024u * 1024u;
 
@@ -24,6 +24,7 @@ u64 g_scheduled_load_vblank = 0;
 u64 g_blocked_since = 0;
 bool g_at_hle_return = false;
 u32 g_load_version = 0;
+bool g_load_required = false;
 
 std::filesystem::path slot_path(int slot) { return g_dir / ("slot" + std::to_string(slot) + ".p2s"); }
 
@@ -42,7 +43,9 @@ void load_memory(StateReader &r) {
 }
 
 std::string blocker() {
-    return kernel_save_blocker();
+    std::string b = kernel_save_blocker();
+    if (b.empty()) b = savedata_save_blocker();
+    return b;
 }
 
 bool do_save(int slot) {
@@ -125,6 +128,10 @@ bool do_load(int slot) {
 void savestate_configure(const std::filesystem::path &dir) { g_dir = dir; }
 void savestate_request_save(int slot) { g_pending_save = slot; }
 void savestate_request_load(int slot) { g_pending_load = slot; }
+void savestate_request_load_required(int slot) {
+    g_pending_load = slot;
+    g_load_required = true;
+}
 void savestate_schedule_save(int slot, u64 vblank) {
     g_scheduled_slot = slot;
     g_scheduled_vblank = vblank;
@@ -179,7 +186,10 @@ bool savestate_service() {
     if (g_pending_load >= 0) {
         const int slot = g_pending_load;
         g_pending_load = -1;
-        return do_load(slot);
+        const bool loaded = do_load(slot);
+        if (!loaded && g_load_required) rt().stop("savestate load failed");
+        g_load_required = false;
+        return loaded;
     }
     return false;
 }

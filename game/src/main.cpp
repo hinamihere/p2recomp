@@ -180,7 +180,7 @@ int run(int argc, char **argv) {
     g_kernel.init(module->gp, module_end);
     g_kernel.set_turbo_until(opt.turbo_until);
     if (opt.save_state_at != 0u) savestate_schedule_save(opt.save_state_slot, opt.save_state_at);
-    if (opt.load_state >= 0) savestate_request_load(opt.load_state);
+    if (opt.load_state >= 0) savestate_request_load_required(opt.load_state);
     if (opt.load_state_at != 0u) savestate_schedule_load(opt.load_state_at_slot, opt.load_state_at);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");

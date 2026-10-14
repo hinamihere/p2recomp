@@ -37,6 +37,8 @@ def main():
         del args[i:i + 2]
     src, dst, length = args[0], int(args[1]), int(args[2])
     script = args[3] if len(args) > 3 else ""
+    if src != "boot" and not os.path.exists(os.path.join(ROOT, "states", f"slot{src}.p2s")):
+        sys.exit(f"no state in slot {src}")
     start = 0 if src == "boot" else state_vblank(int(src))
     end = start + length
 
@@ -53,6 +55,8 @@ def main():
         cmd += ["--load-state", src]
     if parts:
         cmd += ["--input", ",".join(parts)]
+    target = os.path.join(ROOT, "states", f"slot{dst}.p2s")
+    before = os.path.getmtime(target) if os.path.exists(target) else 0
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
     for line in (proc.stdout + proc.stderr).splitlines():
         if "[E" in line or "state" in line:
@@ -72,6 +76,8 @@ def main():
         for i, n in enumerate(picks):
             img.paste(Image.open(os.path.join(frames, n)), ((i % cols) * 480, (i // cols) * 272))
         img.save(os.path.join(out, f"slot{dst}_sheet.png"))
+    if not os.path.exists(target) or os.path.getmtime(target) == before:
+        sys.exit(f"vblank {start} -> {end}: slot {dst} was NOT written (see game log)")
     print(f"vblank {start} -> {end}, {len(names)} frames, slot {dst}")
 
 

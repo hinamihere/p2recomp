@@ -6,9 +6,11 @@
 
 #include "io.hpp"
 #include "kernel.hpp"
+#include "overlay.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -379,7 +381,8 @@ u32 execute(u32 p) {
     auto &m = mem();
     Request r{p, static_cast<int>(m.load32(p + kMode)), fixed_string(p + kGameName, 13u), fixed_string(p + kSaveName, 20u),
               fixed_string(p + kFileName, 13u)};
-    LOG_I("savedata", "mode %d game=%s save=%s file=%s", r.mode, r.game.c_str(), r.save.c_str(), r.file.c_str());
+    LOG_I("savedata", "mode %d game=%s save=%s file=%s focus=%u list=%u", r.mode, r.game.c_str(), r.save.c_str(), r.file.c_str(),
+          m.load32(p + kFocus), static_cast<unsigned>(save_name_list(p).size()));
     switch (r.mode) {
     case 0: case 2: case 4: return do_load(r, choose_save(r, true), false);       // auto/dialog/list load
     case 1: case 3: case 5: return do_save(r, choose_save(r, false));             // auto/dialog/list save
@@ -418,9 +421,113 @@ u32 execute(u32 p) {
 struct Dialog { u32 status{}; u32 param{}; };
 Dialog g_dialog;
 
+// --- save slot picker (list load/save/delete) -------------------------------------
+//
+// The PSP shows a system dialog listing the offered slots for these modes. It is drawn
+// over the presented frame (savedata_dialog_draw) and driven by the controller once per
+// vblank (savedata_dialog_input); the game sees no buttons while it is open.
+
+struct Slot {
+    std::string name;
+    bool exists{};
+    std::string title, detail, date;
+    fs::file_time_type time{};
+};
+
+struct Picker {
+    bool open{};
+    int mode{};
+    std::vector<Slot> slots;
+    int cursor{}, top{};
+    bool confirm{};      // asking "overwrite?" / "delete?"
+    u32 prev_buttons{};
+    u64 held_since{}, last_repeat{};
+};
+Picker g_picker;
+
+constexpr int kRows = 6;
+
+bool picker_mode(int mode) { return mode == 4 || mode == 5 || mode == 6; }
+bool picker_saves() { return g_picker.mode == 5; }
+bool picker_loads() { return g_picker.mode == 4; }
+
+std::string format_time(fs::file_time_type t) {
+    using namespace std::chrono;
+    const auto sys = time_point_cast<system_clock::duration>(t - fs::file_time_type::clock::now() + system_clock::now());
+    const std::time_t tt = system_clock::to_time_t(sys);
+    char buf[32] = "";
+    if (const std::tm *lt = std::localtime(&tt)) std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", lt);
+    return buf;
+}
+
+void open_picker(u32 p, int mode) {
+    Picker &pk = g_picker;
+    pk = Picker{};
+    pk.open = true;
+    pk.mode = mode;
+    const std::string game = fixed_string(p + kGameName, 13u), file = fixed_string(p + kFileName, 13u);
+    for (const auto &name : save_name_list(p)) {
+        Slot s;
+        s.name = name;
+        const fs::path dir = save_dir(game, name);
+        std::error_code ec;
+        s.exists = fs::exists(dir / (file.empty() ? "PARAM.SFO" : file), ec);
+        if (s.exists) {
+            const auto sfo = parse_sfo(read_file(dir / "PARAM.SFO"));
+            if (auto it = sfo.find("SAVEDATA_TITLE"); it != sfo.end()) s.title = it->second;
+            if (auto it = sfo.find("SAVEDATA_DETAIL"); it != sfo.end()) s.detail = it->second;
+            s.time = fs::last_write_time(dir / "PARAM.SFO", ec);
+            if (!ec) s.date = format_time(s.time);
+        }
+        pk.slots.push_back(std::move(s));
+    }
+    if (pk.slots.empty()) {
+        Slot s;
+        s.name = fixed_string(p + kSaveName, 20u);
+        pk.slots.push_back(s);
+    }
+    // Initial focus: the newest save; when saving with no saves yet, the first slot.
+    int newest = -1;
+    for (int i = 0; i < static_cast<int>(pk.slots.size()); ++i)
+        if (pk.slots[i].exists && (newest < 0 || pk.slots[i].time > pk.slots[newest].time)) newest = i;
+    pk.cursor = std::max(newest, 0);
+    pk.top = std::max(0, pk.cursor - kRows / 2);
+    LOG_I("savedata", "slot picker open (mode %d, %u slots)", mode, static_cast<unsigned>(pk.slots.size()));
+}
+
+void close_picker(u32 result, const std::string &save) {
+    auto &m = mem();
+    if (!save.empty()) put_string(g_dialog.param + kSaveName, save, 20u);
+    m.store32(g_dialog.param + kResult, result);
+    g_picker.open = false;
+    g_dialog.status = 3u;
+    LOG_I("savedata", "slot picker closed: %s result %08x", save.empty() ? "cancelled" : save.c_str(), result);
+}
+
+void picker_confirm() {
+    Picker &pk = g_picker;
+    const Slot &s = pk.slots[static_cast<std::size_t>(pk.cursor)];
+    if ((picker_loads() || pk.mode == 6) && !s.exists) return; // nothing to load/delete here
+    if (!pk.confirm && (pk.mode == 6 || (picker_saves() && s.exists))) {
+        pk.confirm = true; // ask before overwriting or deleting
+        return;
+    }
+    // Run the request on the chosen slot.
+    put_string(g_dialog.param + kSaveName, s.name, 20u);
+    const u32 result = execute(g_dialog.param);
+    close_picker(result, s.name);
+}
+
 void SavedataInitStart(AllegrexContext &c) {
     g_dialog.param = arg(c, 0);
     g_dialog.status = 1u;
+    const int mode = static_cast<int>(mem().load32(g_dialog.param + kMode));
+    static const bool auto_pick = std::getenv("P2_SAVEDATA_AUTO") != nullptr;
+    if (picker_mode(mode) && !auto_pick) {
+        open_picker(g_dialog.param, mode);
+        ret(c, 0u);
+        return;
+    }
     const u32 result = execute(g_dialog.param);
     mem().store32(g_dialog.param + kResult, result);
     if (result != 0u) LOG_I("savedata", "result %08x", result);
@@ -430,7 +537,7 @@ void SavedataInitStart(AllegrexContext &c) {
 void SavedataGetStatus(AllegrexContext &c) {
     const u32 s = g_dialog.status;
     if (g_dialog.status == 1u) g_dialog.status = 2u;
-    else if (g_dialog.status == 2u) g_dialog.status = 3u;
+    else if (g_dialog.status == 2u && !g_picker.open) g_dialog.status = 3u;
     else if (g_dialog.status == 4u) g_dialog.status = 0u;
     ret(c, s);
 }
@@ -442,6 +549,97 @@ void SavedataShutdownStart(AllegrexContext &c) { g_dialog.status = 4u; ret(c, 0u
 
 void savedata_configure(const std::filesystem::path &ms_root) { g_ms_root = ms_root; }
 
+bool savedata_dialog_active() { return g_picker.open; }
+
+void savedata_dialog_input(u32 buttons) {
+    Picker &pk = g_picker;
+    if (!pk.open) return;
+    constexpr u32 kUp = 0x0010u, kRight = 0x0020u, kDown = 0x0040u, kLeft = 0x0080u, kCircle = 0x2000u, kCross = 0x4000u;
+    const u32 pressed = buttons & ~pk.prev_buttons;
+    if (buttons != pk.prev_buttons) LOG_D("savedata", "picker buttons %04x (pressed %04x)", buttons, pressed);
+    pk.prev_buttons = buttons;
+    // Held directions repeat after 20 vblanks, every 4.
+    const u64 now = g_kernel.vblank_count();
+    u32 dirs = pressed & (kUp | kDown | kLeft | kRight);
+    if ((buttons & (kUp | kDown | kLeft | kRight)) != 0u) {
+        if (pressed & (kUp | kDown | kLeft | kRight)) pk.held_since = now;
+        else if (now - pk.held_since > 20u && now - pk.last_repeat >= 4u) {
+            dirs = buttons & (kUp | kDown | kLeft | kRight);
+            pk.last_repeat = now;
+        }
+    }
+    const int n = static_cast<int>(pk.slots.size());
+    int move = 0;
+    if (dirs & kUp) move = -1;
+    if (dirs & kDown) move = 1;
+    if (dirs & kLeft) move = -kRows;
+    if (dirs & kRight) move = kRows;
+    if (move != 0) {
+        pk.confirm = false;
+        pk.cursor = std::clamp(pk.cursor + move, 0, n - 1);
+        if (pk.cursor < pk.top) pk.top = pk.cursor;
+        if (pk.cursor >= pk.top + kRows) pk.top = pk.cursor - kRows + 1;
+    }
+    if (pressed & kCircle) {
+        if (pk.confirm) pk.confirm = false;
+        else close_picker(1u, {}); // SCE_UTILITY_DIALOG_RESULT_CANCEL
+    } else if (pressed & kCross) {
+        picker_confirm();
+    }
+}
+
+void savedata_dialog_draw(u32 *frame) {
+    using namespace overlay;
+    const Picker &pk = g_picker;
+    if (!pk.open) return;
+    const u32 white = rgb(240, 240, 240), grey = rgb(150, 150, 150), accent = rgb(230, 60, 60), panel = rgb(16, 16, 24);
+    dim(frame, 90);
+    const char *title = pk.mode == 5 ? "Save" : pk.mode == 4 ? "Load" : "Delete";
+    fill(frame, 0, 0, kWidth, 22, rgb(110, 12, 16));
+    text(frame, 12, 7, title, white);
+    char count[32];
+    std::snprintf(count, sizeof(count), "%d / %d", pk.cursor + 1, static_cast<int>(pk.slots.size()));
+    text(frame, kWidth - 12 - static_cast<int>(std::strlen(count)) * 8, 7, count, grey);
+    // Rows: two lines per slot plus a separator.
+    const int row_h = 38, list_y = 28;
+    for (int r = 0; r < kRows; ++r) {
+        const int i = pk.top + r;
+        if (i >= static_cast<int>(pk.slots.size())) break;
+        const Slot &s = pk.slots[static_cast<std::size_t>(i)];
+        const int y = list_y + r * row_h;
+        const bool sel = i == pk.cursor;
+        fill(frame, 8, y, kWidth - 16, row_h - 4, sel ? rgb(70, 20, 24) : panel, 220);
+        if (sel) frame_rect(frame, 8, y, kWidth - 16, row_h - 4, accent);
+        char label[16];
+        std::snprintf(label, sizeof(label), "%02d", i + 1);
+        text(frame, 16, y + 6, label, sel ? accent : grey);
+        if (!s.exists) {
+            text(frame, 48, y + 6, "New Save Data", sel ? white : grey);
+            continue;
+        }
+        // SAVEDATA_DETAIL has up to three lines: name/level, location, play time.
+        std::vector<std::string> lines;
+        std::size_t start = 0;
+        while (start <= s.detail.size()) {
+            const std::size_t nl = s.detail.find('\n', start);
+            lines.push_back(s.detail.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+        text(frame, 48, y + 6, lines.empty() || lines[0].empty() ? s.title : lines[0], white, 34);
+        text(frame, kWidth - 16 - 16 * 8, y + 6, s.date, grey, 16);
+        std::string second;
+        for (std::size_t k = 1; k < lines.size(); ++k) second += (k > 1 ? "   " : "") + lines[k];
+        text(frame, 48, y + 19, second, grey, 51);
+    }
+    // Footer.
+    fill(frame, 0, kHeight - 18, kWidth, 18, rgb(30, 30, 38));
+    std::string hint;
+    if (pk.confirm) hint = pk.mode == 6 ? "Delete this save?  X: Yes   O: No" : "Overwrite this save?  X: Yes   O: No";
+    else hint = "Up/Down: Select  Left/Right: Page  X: Confirm  O: Back";
+    text(frame, 12, kHeight - 13, hint, pk.confirm ? accent : white);
+}
+
 void register_savedata_imports() {
     const char *U = "sceUtility";
     hle(U, "sceUtilitySavedataInitStart", SavedataInitStart);
@@ -450,14 +648,35 @@ void register_savedata_imports() {
     hle(U, "sceUtilitySavedataShutdownStart", SavedataShutdownStart);
 }
 
+std::string savedata_save_blocker() { return {}; }
+
 void savedata_save(StateWriter &w) {
     w.section("SAVE");
     w.pod(g_dialog);
+    // The picker's slot list is rebuilt from the memory stick on load.
+    w.pod(g_picker.open);
+    w.pod(g_picker.mode);
+    w.pod(g_picker.cursor);
+    w.pod(g_picker.top);
+    w.pod(g_picker.confirm);
 }
 
 void savedata_load(StateReader &r) {
     r.section("SAVE");
     r.pod(g_dialog);
+    g_picker = Picker{};
+    if (savestate_load_version() < 5u) return;
+    bool open = false;
+    int mode = 0, cursor = 0, top = 0;
+    bool confirm = false;
+    r.pod(open); r.pod(mode); r.pod(cursor); r.pod(top); r.pod(confirm);
+    if (open) {
+        open_picker(g_dialog.param, mode);
+        g_picker.cursor = std::clamp(cursor, 0, static_cast<int>(g_picker.slots.size()) - 1);
+        g_picker.top = top;
+        g_picker.confirm = confirm;
+        g_picker.prev_buttons = 0xFFFFFFFFu; // ignore buttons still held from before the load
+    }
 }
 
 } // namespace p2

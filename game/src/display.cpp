@@ -1,6 +1,7 @@
 // sceDisplay and sceCtrl: framebuffer presentation at vblank and pad sampling.
 #include "display.hpp"
 #include "ge.hpp"
+#include "savedata.hpp"
 #include "savestate.hpp"
 
 #include "host.hpp"
@@ -105,6 +106,7 @@ void present_frame() {
             }
         }
     }
+    savedata_dialog_draw(g_frame.data());
     const u64 present_start = Kernel::now_us();
     host::present(g_frame.data(), 480, 272);
     K.perf_present_us += Kernel::now_us() - present_start;
@@ -239,7 +241,8 @@ u64 g_ctrl_last_read{};
 
 void write_ctrl_data(u32 address, u32 count) {
     auto &m = mem();
-    const u32 buttons = host::buttons() | scripted_buttons();
+    // While a system dialog is open the game sees no buttons (the dialog consumes them).
+    const u32 buttons = savedata_dialog_active() ? 0u : host::buttons() | scripted_buttons();
     for (u32 i = 0; i < count; ++i) {
         const u32 p = address + i * 16u;
         m.store32(p + 0u, static_cast<u32>(Kernel::now_us()));
@@ -284,6 +287,7 @@ void on_vblank() {
     }
     // While fast-forwarding only every 8th vblank is shown (and rasterized, see gpu_soft).
     ge_flush(); // drawing still queued from stalled lists
+    savedata_dialog_input(host::buttons() | scripted_buttons());
     if (!K.turbo() || (K.vblank_count() & 7u) == 0u) present_frame();
     ++g_ctrl_samples;
     for (Thread *t : K.waiters(WaitType::Ctrl, 0, false)) {

@@ -97,10 +97,13 @@ void mpeg_save(StateWriter &w);
 void mpeg_load(StateReader &r);
 // Returns a reason the game cannot be saved right now, or empty.
 std::string kernel_save_blocker();
+std::string savedata_save_blocker();
 
 // Requested from the UI; performed at the next safe dispatch boundary.
 void savestate_request_save(int slot);
 void savestate_request_load(int slot);
+// As above, but a failed load stops the run (command line --load-state).
+void savestate_request_load_required(int slot);
 void savestate_configure(const std::filesystem::path &dir);
 // Saves `slot` once the vblank counter reaches `vblank` (for scripted tests).
 void savestate_schedule_save(int slot, u64 vblank);
