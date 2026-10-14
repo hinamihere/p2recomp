@@ -273,6 +273,32 @@ void on_vblank() {
         }
         return v;
     }();
+    // P2_POKE=<vblank>,<hex addr>,<float>[,<hex addr>,<float>...]: writes guest float32
+    // values once at that vblank (debugging, e.g. moving the player).
+    static const std::vector<std::pair<u32, float>> pokes = [] {
+        std::vector<std::pair<u32, float>> v;
+        if (const char *e = std::getenv("P2_POKE")) {
+            const char *p = std::strchr(e, ',');
+            while (p != nullptr) {
+                char *end = nullptr;
+                const u32 addr = static_cast<u32>(std::strtoul(p + 1, &end, 16));
+                if (end == nullptr || *end != ',') break;
+                const float value = std::strtof(end + 1, &end);
+                v.emplace_back(addr, value);
+                p = end != nullptr && *end == ',' ? end : nullptr;
+            }
+        }
+        return v;
+    }();
+    static const u64 poke_at = [] { const char *e = std::getenv("P2_POKE"); return e ? std::strtoull(e, nullptr, 0) : 0ull; }();
+    if (!pokes.empty() && K.vblank_count() == poke_at) {
+        for (const auto &[addr, value] : pokes) {
+            u32 bits;
+            std::memcpy(&bits, &value, 4);
+            mem().store32(addr, bits);
+            LOG_I("poke", "%08x = %.3f", addr, static_cast<double>(value));
+        }
+    }
     if (!watch.empty()) {
         std::string line;
         for (u32 a : watch) {
