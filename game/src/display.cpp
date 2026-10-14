@@ -1,5 +1,6 @@
 // sceDisplay and sceCtrl: framebuffer presentation at vblank and pad sampling.
 #include "display.hpp"
+#include "ge.hpp"
 #include "savestate.hpp"
 
 #include "host.hpp"
@@ -155,6 +156,7 @@ void on_vblank() {
     }
     K.set_turbo_key(host::fast_forward_held());
     // While fast-forwarding only every 8th vblank is shown (and rasterized, see gpu_soft).
+    ge_flush(); // drawing still queued from stalled lists
     if (!K.turbo() || (K.vblank_count() & 7u) == 0u) present_frame();
     ++g_ctrl_samples;
     for (Thread *t : K.waiters(WaitType::Ctrl, 0, false)) {
@@ -222,7 +224,10 @@ void DisplayGetVcount(AllegrexContext &c) {
         if (++repeats >= 256u) {
             const u64 now = Kernel::now_us(), next = K.next_vblank_us();
             if (K.turbo()) K.skip_time_to(next);
-            else if (next > now + 300u) std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
+            else if (next > now + 300u) {
+                std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
+                K.add_idle_us(Kernel::now_us() - now);
+            }
             repeats = 0;
         }
     } else {

@@ -1,4 +1,5 @@
 #include "savestate.hpp"
+#include "ge.hpp"
 
 #include "display.hpp"
 #include "kernel.hpp"
@@ -44,6 +45,7 @@ std::string blocker() {
 }
 
 bool do_save(int slot) {
+    ge_flush();
     StateWriter w;
     w.pod(kMagic);
     w.pod(kVersion);
@@ -80,6 +82,7 @@ bool do_load(int slot) {
     }
     std::vector<u8> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     StateReader r(std::move(data));
+    ge_flush();
     // Header problems are refused before anything is touched.
     const char *refused = nullptr;
     if (r.buf.size() < 20u) refused = "not a savestate";

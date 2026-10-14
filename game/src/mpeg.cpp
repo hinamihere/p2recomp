@@ -3,6 +3,7 @@
 // copy every 2048-byte pack, demux the MPEG program stream ourselves and decode
 // H.264 with FFmpeg and ATRAC3+ with the at3_standalone decoder.
 #include "mpeg.hpp"
+#include "ge.hpp"
 #include "savestate.hpp"
 
 #include "kernel.hpp"
@@ -509,6 +510,7 @@ void MpegAvcQueryYCbCrSize(AllegrexContext &c) {
 void MpegAvcInitYCbCr(AllegrexContext &c) { ret(c, 0u); }
 
 void MpegAvcCsc(AllegrexContext &c) {
+    ge_flush(); // writes VRAM from the CPU
     Context *ctx = ctx_for(arg(c, 0));
     if (ctx == nullptr) { ret(c, 0xFFFFFFFFu); return; }
     const u32 range = arg(c, 2);

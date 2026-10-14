@@ -1,6 +1,7 @@
 // Persona 2: Innocent Sin (PSP, ULES-01557) — native host for the statically
 // recompiled EBOOT.
 #include "atrac.hpp"
+#include "profiler.hpp"
 #include "savestate.hpp"
 #include "audio.hpp"
 #include "display.hpp"
@@ -184,6 +185,8 @@ int run(int argc, char **argv) {
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,
                               "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN");
 
+    const bool profile = std::getenv("P2_PROFILE") != nullptr;
+    if (profile) profiler_start();
     int status = 0;
     try {
         r.run(r.cpu().pc, ~0ull);
@@ -192,6 +195,7 @@ int run(int argc, char **argv) {
         LOG_E("boot", "fatal: %s", e.what());
         status = 2;
     }
+    if (profile) profiler_stop();
     if (std::getenv("PSPRECOMP_HLE_HISTOGRAM") != nullptr) r.report_hle_histogram(30u);
     if (r.stop_reason() != "window closed" && r.stop_reason() != "sceKernelExitGame" && r.stop_reason() != "exit-after reached") {
         LOG_E("boot", "thread state at stop (current uid=%x):", g_kernel.current_uid());

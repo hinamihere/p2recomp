@@ -11,6 +11,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace p2::gpu {
@@ -595,6 +600,7 @@ struct Pipeline {
     u32 logic{};
     u32 ct_func{}, ct_ref{}, ct_mask{};
     float minz{}, maxz{65535.f};
+    mutable u64 fragments{}; // shaded by this pipeline copy (statistics)
 };
 
 bool compare(u32 func, u32 a, u32 b) {
@@ -724,10 +730,10 @@ u32 blend_factor_value(u32 f, bool src, const int s[4], const int d[4], u32 fix,
 }
 
 // Shades and writes one fragment. Colors are 0..255.
-u64 g_fragments = 0;
+std::atomic<u64> g_fragments_total{0};
 
 inline void fragment(const Pipeline &p, int x, int y, float z, int r, int g, int b, int a, float u, float v, float fogf) {
-    ++g_fragments;
+    ++p.fragments;
     const std::size_t zi = static_cast<std::size_t>(y) * p.zb_stride + static_cast<std::size_t>(x);
     const u16 zval = static_cast<u16>(std::clamp(z, 0.f, 65535.f));
     if (p.clear) {
@@ -1011,6 +1017,262 @@ void raster_line(const Pipeline &p, const ScreenVertex &a, const ScreenVertex &b
     }
 }
 
+// --- batched, banded rasterization ---------------------------------------------------
+//
+// Primitives of a display list are not rasterized when they are issued. Each draw call
+// snapshots its pipeline (and palette); its clipped, projected primitives are queued.
+// flush() then rasterizes the queue in horizontal bands on several threads: every band
+// processes all primitives in issue order, clipped to its rows through the scissor, so the
+// result is the same as drawing them one by one. The queue is flushed whenever a list
+// returns to the game, before block transfers, and before a draw samples memory that a
+// queued draw renders into.
+
+enum class JobKind : u8 { Triangle, Sprite, Line };
+
+struct PipeSnap {
+    Pipeline p;
+    std::array<u32, 256> palette{};
+};
+
+struct Job {
+    JobKind kind{};
+    bool flat{};
+    u32 pipe{};
+    ScreenVertex v[3];
+    float fc[4]{};
+};
+
+std::deque<PipeSnap> g_pipes;
+std::vector<Job> g_jobs;
+int g_cur_pipe = -1;     // index into g_pipes while recording a draw call, -1 = draw immediately
+u64 g_queued_area = 0;   // rough pixel count of the queued primitives
+struct Range { u32 lo, hi; };
+std::vector<Range> g_targets; // guest ranges written by queued draws (color and depth)
+
+u32 guest_addr(const u8 *host) {
+    // Inverse of raw_pointer for the VRAM/RAM windows the renderer writes to.
+    auto &m = mem();
+    for (const u32 base : {0x04000000u, 0x08000000u}) {
+        const u8 *b = m.raw_pointer(base, 1u);
+        const std::size_t size = base == 0x04000000u ? 0x00800000u : 0x02000000u;
+        if (b != nullptr && host >= b && host < b + size) return base + static_cast<u32>(host - b);
+    }
+    return 0u;
+}
+
+void add_target(const u8 *host, u32 bytes) {
+    const u32 a = host != nullptr ? guest_addr(host) : 0u;
+    if (a == 0u) return;
+    for (const auto &r : g_targets)
+        if (r.lo == a && r.hi == a + bytes) return;
+    g_targets.push_back({a, a + bytes});
+}
+
+bool overlaps_targets(u32 lo, u32 hi) {
+    // VRAM is mirrored every 2 MiB; compare within the first mirror.
+    auto norm = [](u32 a) { return (a & 0xFF000000u) == 0x04000000u ? 0x04000000u | (a & 0x1FFFFFu) : a; };
+    const u32 l = norm(lo), h = l + (hi - lo);
+    for (const auto &r : g_targets)
+        if (l < norm(r.hi - 1u) + 1u && norm(r.lo) < h) return true;
+    return false;
+}
+
+void run_job(const Job &j, Pipeline &p) {
+    switch (j.kind) {
+    case JobKind::Triangle: raster_triangle(p, j.v[0], j.v[1], j.v[2], j.flat, j.fc); break;
+    case JobKind::Sprite: raster_sprite(p, j.v[0], j.v[1]); break;
+    case JobKind::Line: raster_line(p, j.v[0], j.v[1]); break;
+    }
+}
+
+void run_band(int y0, int y1) {
+    u64 fragments = 0;
+    for (const Job &j : g_jobs) {
+        const PipeSnap &snap = g_pipes[j.pipe];
+        Pipeline p = snap.p;
+        p.texinfo.palette = snap.palette.data();
+        p.sy0 = std::max(p.sy0, y0);
+        p.sy1 = std::min(p.sy1, y1);
+        if (p.sy0 > p.sy1) continue;
+        run_job(j, p);
+        fragments += p.fragments;
+    }
+    g_fragments_total.fetch_add(fragments, std::memory_order_relaxed);
+}
+
+class RasterPool {
+public:
+    RasterPool() {
+        int n = static_cast<int>(std::thread::hardware_concurrency());
+        n = std::clamp(n - 2, 1, 4);
+        if (const char *e = std::getenv("P2_RASTER_THREADS")) n = std::clamp(std::atoi(e), 1, 16);
+        bands_ = n;
+        for (int i = 1; i < n; ++i) workers_.emplace_back([this, i] { work(i); });
+    }
+    ~RasterPool() {
+        {
+            std::lock_guard lock(mutex_);
+            quit_ = true;
+        }
+        cv_.notify_all();
+        for (auto &t : workers_) t.join();
+    }
+    int bands() const { return bands_; }
+    // Runs every band (the calling thread takes band 0) and waits for all of them.
+    void run() {
+        {
+            std::lock_guard lock(mutex_);
+            pending_ = bands_ - 1;
+            ++generation_;
+        }
+        cv_.notify_all();
+        band(0);
+        std::unique_lock lock(mutex_);
+        done_cv_.wait(lock, [this] { return pending_ == 0; });
+    }
+
+private:
+    void band(int i) {
+        // Rows 0..271 split evenly; the last band also takes rows past the screen.
+        const int h = (272 + bands_ - 1) / bands_;
+        run_band(i * h, i == bands_ - 1 ? 1023 : i * h + h - 1);
+    }
+    void work(int i) {
+        u64 seen = 0;
+        for (;;) {
+            {
+                std::unique_lock lock(mutex_);
+                cv_.wait(lock, [&] { return quit_ || generation_ != seen; });
+                if (quit_) return;
+                seen = generation_;
+            }
+            band(i);
+            {
+                std::lock_guard lock(mutex_);
+                if (--pending_ == 0) done_cv_.notify_one();
+            }
+        }
+    }
+    int bands_{1};
+    std::vector<std::thread> workers_;
+    std::mutex mutex_;
+    std::condition_variable cv_, done_cv_;
+    u64 generation_{};
+    int pending_{};
+    bool quit_{};
+};
+
+RasterPool &pool() {
+    static RasterPool p;
+    return p;
+}
+
+void flush_jobs() {
+    if (!g_jobs.empty()) {
+        static const bool stats = std::getenv("P2_RASTER_STATS") != nullptr;
+        if (stats) {
+            static u64 n = 0, jobs = 0, area = 0, big = 0, big_area = 0;
+            ++n; jobs += g_jobs.size(); area += g_queued_area;
+            if (g_queued_area >= 20000u) { ++big; big_area += g_queued_area; }
+            if ((n & 1023u) == 0u)
+                LOG_I("gpu", "batches %llu: %.1f jobs, %.0f px avg; %.0f%% of area in %llu parallel batches", static_cast<unsigned long long>(n),
+                      static_cast<double>(jobs) / n, static_cast<double>(area) / n, 100.0 * big_area / std::max<u64>(area, 1),
+                      static_cast<unsigned long long>(big));
+        }
+        // Small batches are not worth waking the workers for.
+        if (pool().bands() > 1 && g_queued_area >= 20000u) {
+            static const bool verify = std::getenv("P2_RASTER_VERIFY") != nullptr;
+            u8 *vram = verify ? mem().raw_pointer(0x04000000u, 0x200000u) : nullptr;
+            if (vram != nullptr) {
+                // Debug: banded result must equal the sequential one (VRAM targets only).
+                static std::vector<u8> before, banded;
+                before.assign(vram, vram + 0x200000u);
+                pool().run();
+                banded.assign(vram, vram + 0x200000u);
+                std::memcpy(vram, before.data(), before.size());
+                run_band(0, 1023);
+                std::size_t diff = 0;
+                for (std::size_t i = 0; i < banded.size(); ++i) diff += banded[i] != vram[i];
+                static u64 checks = 0, bad = 0;
+                ++checks;
+                if (diff != 0u) {
+                    LOG_E("gpu", "raster verify: %zu bytes differ (%zu jobs)", diff, g_jobs.size());
+                    ++bad;
+                }
+                if ((checks & 255u) == 0u) LOG_I("gpu", "raster verify: %llu batches checked, %llu mismatched", static_cast<unsigned long long>(checks), static_cast<unsigned long long>(bad));
+            } else {
+                pool().run();
+            }
+        } else {
+            run_band(0, 1023);
+        }
+    }
+    g_jobs.clear();
+    g_pipes.clear();
+    g_targets.clear();
+    g_queued_area = 0;
+    g_cur_pipe = -1;
+}
+
+void queue_job(JobKind kind, std::initializer_list<const ScreenVertex *> v, bool flat = false, const float *fc = nullptr) {
+    Job j;
+    j.kind = kind;
+    j.flat = flat;
+    j.pipe = static_cast<u32>(g_cur_pipe);
+    int i = 0;
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (const ScreenVertex *sv : v) {
+        j.v[i++] = *sv;
+        x0 = std::min(x0, sv->x); x1 = std::max(x1, sv->x);
+        y0 = std::min(y0, sv->y); y1 = std::max(y1, sv->y);
+    }
+    if (fc != nullptr) std::memcpy(j.fc, fc, sizeof(j.fc));
+    const float area = std::max(x1 - x0, 1.f) * std::max(y1 - y0, 1.f);
+    g_queued_area += static_cast<u64>(std::min(area, 1e6f));
+    g_jobs.push_back(j);
+}
+
+
+void submit_triangle(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b, const ScreenVertex &c, bool flat, const float fc[4]) {
+    if (g_cur_pipe < 0) raster_triangle(p, a, b, c, flat, fc);
+    else queue_job(JobKind::Triangle, {&a, &b, &c}, flat, fc);
+}
+
+void submit_sprite(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
+    if (g_cur_pipe < 0) raster_sprite(p, a, b);
+    else queue_job(JobKind::Sprite, {&a, &b});
+}
+
+void submit_line(Pipeline &p, const ScreenVertex &a, const ScreenVertex &b) {
+    if (g_cur_pipe < 0) raster_line(p, a, b);
+    else queue_job(JobKind::Line, {&a, &b});
+}
+
+// Starts recording a draw call with pipeline `p`, or returns false if it must be drawn
+// immediately (after the queue was flushed).
+bool begin_queued_draw(const Pipeline &p) {
+    if (p.fb == nullptr) return false;
+    if (p.tex) {
+        // CLUT-indexed 16/32-bit textures read the live CLUT state: draw those in order now.
+        if (p.texinfo.fmt == 6u || p.texinfo.fmt == 7u) {
+            flush_jobs();
+            return false;
+        }
+        // Render-to-texture: sampling what a queued draw renders.
+        if (overlaps_targets(p.texinfo.addr, p.texinfo.addr + p.texinfo.span)) flush_jobs();
+    }
+    PipeSnap &snap = g_pipes.emplace_back();
+    snap.p = p;
+    if (p.tex && p.texinfo.palette != nullptr) std::memcpy(snap.palette.data(), p.texinfo.palette, sizeof(snap.palette));
+    snap.p.texinfo.palette = nullptr;
+    g_cur_pipe = static_cast<int>(g_pipes.size()) - 1;
+    const u32 bpp = p.fb_fmt == 3u ? 4u : 2u;
+    const u32 rows = static_cast<u32>(std::clamp(p.sy1 + 1, 1, 512));
+    add_target(p.fb, p.fb_stride * rows * bpp);
+    if (p.zb != nullptr && (p.z_write || p.clear_depth)) add_target(reinterpret_cast<const u8 *>(p.zb), p.zb_stride * rows * 2u);
+    return true;
+}
+
 // Clips a clip-space triangle against the near plane (z > -w) and emits screen triangles.
 void clip_and_draw(const State &s, Pipeline &p, ScreenVertex v0, ScreenVertex v1, ScreenVertex v2, bool flat,
                    const float flat_color[4], bool cull, bool cull_ccw) {
@@ -1047,7 +1309,7 @@ void clip_and_draw(const State &s, Pipeline &p, ScreenVertex v0, ScreenVertex v1
             const float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
             if (cull_ccw ? area < 0.f : area > 0.f) continue;
         }
-        raster_triangle(p, a, b, c, flat, flat_color);
+        submit_triangle(p, a, b, c, flat, flat_color);
     }
 }
 
@@ -1124,6 +1386,14 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
         }
     }
     if (p.fb == nullptr) return;
+    begin_queued_draw(p);
+    struct EndDraw {
+        const Pipeline &p;
+        ~EndDraw() {
+            g_cur_pipe = -1;
+            g_fragments_total.fetch_add(p.fragments, std::memory_order_relaxed);
+        }
+    } end_draw{p};
     const bool flat = (s.reg[SHADEMODE] & 1u) == 0u;
     const bool cull = !l.through && (s.reg[CULLFACEENABLE] & 1u) != 0u && prim_type >= 3u && prim_type <= 5u;
     const bool cull_ccw = (s.reg[CULL] & 1u) == 0u;
@@ -1132,7 +1402,7 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
         const float *fc = verts[provoking].color;
         if (l.through) {
             if (cull) return;
-            raster_triangle(p, verts[i0], verts[i1], verts[i2], flat, fc);
+            submit_triangle(p, verts[i0], verts[i1], verts[i2], flat, fc);
         } else {
             clip_and_draw(s, p, verts[i0], verts[i1], verts[i2], flat, fc, cull, cull_ccw);
         }
@@ -1146,14 +1416,14 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
     case 0: // points
         for (u32 i = 0; i < count; ++i) {
             const ScreenVertex v = to_screen(verts[i]);
-            raster_line(p, v, v);
+            submit_line(p, v, v);
         }
         break;
     case 1: // lines
-        for (u32 i = 0; i + 1 < count; i += 2) raster_line(p, to_screen(verts[i]), to_screen(verts[i + 1]));
+        for (u32 i = 0; i + 1 < count; i += 2) submit_line(p, to_screen(verts[i]), to_screen(verts[i + 1]));
         break;
     case 2: // line strip
-        for (u32 i = 0; i + 1 < count; ++i) raster_line(p, to_screen(verts[i]), to_screen(verts[i + 1]));
+        for (u32 i = 0; i + 1 < count; ++i) submit_line(p, to_screen(verts[i]), to_screen(verts[i + 1]));
         break;
     case 3: // triangles
         for (u32 i = 0; i + 2 < count; i += 3) tri(i, i + 1, i + 2, i + 2);
@@ -1175,7 +1445,7 @@ void draw_prim(State &s, u32 prim_type, u32 count) {
                 project(s, a);
                 project(s, b);
             }
-            raster_sprite(p, a, b);
+            submit_sprite(p, a, b);
         }
         break;
     default: break;
@@ -1200,6 +1470,7 @@ void load_clut(State &s) {
 }
 
 void block_transfer(State &s, u32 data) {
+    flush_jobs();
     const u32 bpp = (data & 1u) != 0u ? 4u : 2u;
     const u32 src = (s.reg[TRANSFERSRC] & 0xFFFFF0u) | ((s.reg[TRANSFERSRCW] & 0xFF0000u) << 8);
     const u32 src_stride = s.reg[TRANSFERSRCW] & 0x7F8u;
@@ -1218,12 +1489,10 @@ void block_transfer(State &s, u32 data) {
     }
 }
 
-void flush(State &) {}
+void flush(State &) { flush_jobs(); }
 
 u64 take_fragment_count() {
-    const u64 n = g_fragments;
-    g_fragments = 0;
-    return n;
+    return g_fragments_total.exchange(0, std::memory_order_relaxed);
 }
 
 } // namespace p2::gpu

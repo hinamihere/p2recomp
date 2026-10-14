@@ -197,6 +197,8 @@ public:
     void set_turbo_key(bool held) { turbo_key_ = held; }
     // Advances the virtual clock so that now_us() >= target.
     void skip_time_to(u64 target);
+    // Host time the game spent waiting (sleeping) outside the idle loop, e.g. polling the vcount.
+    void add_idle_us(u64 us) { idle_us_ += us; }
     u64 vblank_count() const { return vcount_; }
     u64 next_vblank_us() const { return next_vblank_us_; }
     static constexpr u64 kVblankPeriodUs = 16683u; // 59.94 Hz

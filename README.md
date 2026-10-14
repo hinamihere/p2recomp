@@ -19,7 +19,8 @@ Playable from boot into the story:
 
 Not verified yet: battles (the first ones come after the opening story chain),
 saving at save points. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
-auto-confirmed, the renderer is a straightforward software rasterizer (correct but CPU heavy).
+auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
+horizontal bands on several threads).
 
 ## Why a recomp and not a matching decomp
 
@@ -91,7 +92,9 @@ last frame and a contact sheet in `build/drive/`), `tools/explore.py` (random wa
 location banner changes) and `tools/talkhunt.py` (random walk until a conversation opens).
 
 Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and dump textures),
-`P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`.
+`P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`, `P2_PROFILE=1` (sampling profiler, then
+`tools/profile.py build/release/p2.exe`), `P2_RASTER_THREADS=N` (default: cores - 2, at most 4),
+`P2_RASTER_VERIFY=1` (check banded against sequential rasterization), `P2_RASTER_STATS=1`.
 
 Controls: arrows = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q/W = L/R,
 Enter = Start, Backspace = Select, F11 or Alt+Enter = fullscreen, Esc = quit.

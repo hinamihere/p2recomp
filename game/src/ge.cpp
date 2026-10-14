@@ -249,12 +249,14 @@ u32 list_status(const DisplayList &dl) {
 }
 
 void GeListSync(AllegrexContext &c) {
+    ge_flush();
     auto it = g_lists.find(static_cast<s32>(arg(c, 0)));
     if (it == g_lists.end()) { ret(c, 0u); return; }
     ret(c, arg(c, 1) == 1u ? list_status(it->second) : 0u);
 }
 
 void GeDrawSync(AllegrexContext &c) {
+    ge_flush();
     if (arg(c, 0) == 1u) {
         for (const auto &[id, dl] : g_lists) {
             if (dl.state != ListState::Completed) { ret(c, list_status(dl) == 3u ? 3u : 2u); return; }
@@ -287,6 +289,12 @@ void GeContinue(AllegrexContext &c) { process_lists(); ret(c, 0u); }
 void GeEdramGetAddr(AllegrexContext &c) { ret(c, 0x04000000u); }
 
 } // namespace
+
+void ge_flush() {
+    const u64 start = Kernel::now_us();
+    gpu::flush(g_state);
+    g_kernel.perf_gpu_us += Kernel::now_us() - start;
+}
 
 void register_ge_imports() {
     const char *G = "sceGe_user";

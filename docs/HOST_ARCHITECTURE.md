@@ -46,6 +46,17 @@ clipping, span-based triangle traversal with incremental plane equations, sprite
 in all PSP formats incl. swizzling, CLUT and DXT; texture functions, fog, alpha/colour/stencil/depth
 tests, blending, logic ops and write masks. Not implemented: Bezier/spline patches.
 
+### Batched, banded rasterization
+
+`draw_prim` transforms and clips at once but only queues the resulting screen-space primitives,
+each with a snapshot of its pipeline state and palette. The queue is rasterized in horizontal
+bands on a small thread pool, every band processing all primitives in issue order, so results
+equal sequential drawing (`P2_RASTER_VERIFY=1` checks this). Like the real GE the queue keeps
+going while a list is stalled; it is flushed at list completion, `sceGeDrawSync`/`ListSync`,
+block transfers, vblank (before presenting), CPU writes to VRAM (`sceMpegAvcCsc`), savestates,
+and before a draw samples memory a queued draw renders into. CLUT-indexed 16/32-bit textures
+are drawn immediately.
+
 ## Audio
 
 * `audio.cpp`: eight `sceAudio` channels mixed on SDL's audio thread; blocking output suspends the
