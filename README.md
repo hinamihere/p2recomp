@@ -28,8 +28,10 @@ the party, victory and return to the dungeon). The per-character command menu wo
 spell banner, effect and SP cost), Item (Medicine list), Persona (affinity screen with portrait), and the end of a
 fight shows the Level Up screens with stat point distribution for each party member. The dungeon command menu
 (Skills, Items, Equip, Persona, Status, Analyze, Battle settings, System) opens, and saving from the dungeon's
-System menu works (slot picker, overwrite prompt, "Saving system data"). Not verified yet: boss fights, escape and
-guard commands, shops, later chapters. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+System menu works (slot picker, overwrite prompt, "Saving system data"). The Guard and Escape commands, the Fusion Spells screen (Hydro Boost with its Auto/Standby setting) and a shop purchase
+(Toua Defense: buy list with prices, quantity, "That's gonna be 300 yen" confirmation, yen deducted) work, as do the city
+map, the Rengedai and Hirasaka town maps and the transitions between them. Not verified yet: a story boss fight beyond
+the scripted Joker fight, selling, the Velvet Room fusion, later chapters. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 
