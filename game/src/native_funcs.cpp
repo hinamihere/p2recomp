@@ -132,6 +132,55 @@ s32 trig_value(u16 raw) { return raw > 0x7FFF ? static_cast<s32>(raw & 0xFFF) - 
 s32 sin_fixed(u32 angle) { return trig_value(g_trig_table.get()[angle & 0xFFF].sin); }
 s32 cos_fixed(u32 angle) { return trig_value(g_trig_table.get()[angle & 0xFFF].cos); }
 
+// ===== entities =============================================================================================
+
+// The object table: a pointer to a header followed by `count` 0x54-byte entities. A zero `flags` word means
+// the slot is free.
+struct Entity {
+    u32 flags;
+    u8 rest[0x50];
+};
+struct EntityPool {
+    u32 unknown0;
+    s16 count;
+    u8 unknown6[0x4E];
+};
+static_assert(sizeof(Entity) == 0x54 && sizeof(EntityPool) == 0x54);
+Global<u32, 0x08CDD898> g_entity_pool_ptr;
+
+Entity *entity_at(s32 index) {
+    return guest<Entity>(g_entity_pool_ptr + sizeof(EntityPool) + static_cast<u32>(index) * sizeof(Entity));
+}
+
+// 089228B0: marks entity `index` with flag bits 1 and 2.
+void entity_set_flags6(s16 index) { entity_at(index)->flags |= 6u; }
+
+// 08922938: entity `index` is in use.
+bool entity_active(s16 index) { return entity_at(index)->flags != 0u; }
+
+// 089228E8: at least one entity is in use. (For a negative count the original answers true.)
+bool entity_any_active() {
+    const s32 count = guest<EntityPool>(g_entity_pool_ptr)->count;
+    s32 index = 0;
+    while (index < count && entity_at(index)->flags == 0u) ++index;
+    return index != count;
+}
+
+// ===== small tables and copies ==============================================================================
+
+Global<std::array<u32, 128>, 0x08CCC868> g_table_c868;
+Global<std::array<u32, 128>, 0x08CCC668> g_table_c668;
+Global<u32, 0x08CD80E4> g_word_80e4;
+constexpr u32 kObjectAt60e4 = 0x08CD60E4;
+struct Point16 { u16 x, y; };
+Global<Point16, 0x08E41274> g_view_point;
+
+u32 table_c868_get(u32 index) { return g_table_c868.get()[index]; } // 088523F0
+u32 table_c668_get(u32 index) { return g_table_c668.get()[index]; } // 0885244C
+u32 get_word_80e4() { return g_word_80e4; }                          // 088EB73C
+u32 get_object_60e4() { return kObjectAt60e4; }                      // 088EB8DC
+void get_view_point(Point16 *out) { *out = g_view_point.get(); }     // 08864A24
+
 u32 get_map_flag() { return g_map_flag; }                        // 08807C58
 u32 get_pool_ptr() { return g_pool_ptr; }                        // 08963E4C
 u32 get_map_slot(u32 index) { return g_map_slots.get()[index]; } // 088A0508
@@ -202,6 +251,30 @@ void native_fuzz_setup(u32 address, std::mt19937 &rng, AllegrexContext &c) {
         c.gpr[4] &= 0x3Fu;
         fill(0x08E4452Cu, 0x100);
         break;
+    case 0x089228B0u:
+    case 0x08922938u:
+    case 0x089228E8u: {
+        fill(kScratch, 0x800);
+        g_entity_pool_ptr = kScratch;
+        guest<EntityPool>(kScratch)->count = static_cast<s16>(rng() % 12u) - 2;
+        for (u32 i = 0; i < 10; ++i)
+            if (rng() & 1u) guest<Entity>(kScratch + sizeof(EntityPool) + i * sizeof(Entity))->flags = 0;
+        c.gpr[4] = static_cast<u32>(static_cast<s32>(rng() % 10u));
+        break;
+    }
+    case 0x088523F0u:
+    case 0x0885244Cu:
+        c.gpr[4] &= 0x7Fu;
+        fill(0x08CCC668u, 0x400);
+        break;
+    case 0x088EB73Cu:
+        g_word_80e4 = rng();
+        break;
+    case 0x08864A24u:
+        fill(kScratch, 0x10);
+        c.gpr[4] = kScratch;
+        g_view_point = Point16{static_cast<u16>(rng()), static_cast<u16>(rng())};
+        break;
     default: break;
     }
 }
@@ -223,3 +296,11 @@ P2_NATIVE(08866818, p2::game::sin_fixed)
 P2_NATIVE(08866850, p2::game::cos_fixed)
 P2_NATIVE(08963E4C, p2::game::get_pool_ptr)
 P2_NATIVE(088A0508, p2::game::get_map_slot)
+P2_NATIVE_VOID(089228B0, p2::game::entity_set_flags6)
+P2_NATIVE(08922938, p2::game::entity_active)
+P2_NATIVE(089228E8, p2::game::entity_any_active)
+P2_NATIVE(088523F0, p2::game::table_c868_get)
+P2_NATIVE(0885244C, p2::game::table_c668_get)
+P2_NATIVE(088EB73C, p2::game::get_word_80e4)
+P2_NATIVE(088EB8DC, p2::game::get_object_60e4)
+P2_NATIVE_VOID(08864A24, p2::game::get_view_point)

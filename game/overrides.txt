@@ -15,3 +15,11 @@
 08866850  # cos_table
 08963E4C  # get_pool_ptr
 088A0508  # get_map_slot
+089228B0  # entity_set_flags6
+08922938  # entity_active
+089228E8  # entity_any_active
+088523F0  # table_c868_get
+0885244C  # table_c668_get
+088EB73C  # get_word_80e4
+088EB8DC  # get_object_60e4
+08864A24  # get_view_point

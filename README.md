@@ -53,9 +53,9 @@ Functions can be rewritten by hand and swapped in one at a time while the rest s
    arguments and RAM against the original before boot (inputs are shaped per function in `native_fuzz_setup`);
    it caught a wrong flag-array address that gameplay never exercised. `tools/callgraph.py` lists leaf functions and callers.
 
-Replaced so far (15 functions, all fuzz-verified; `game/overrides.txt` has the list): the controller helper cluster at
+Replaced so far (23 functions, all fuzz-verified; `game/overrides.txt` has the list): the controller helper cluster at
 0x08807918-0x08807B08 (held, pressed, mapped-button and d-pad queries), the game's `rand()`, a 3x3 fixed-point
-vector*matrix multiply, sin/cos table lookups, entity-pool init/count helpers and a few getters. `tools/mapgraph.py`
+vector*matrix multiply, sin/cos table lookups, pool and entity-table helpers (the object table is a header plus 0x54-byte entities at the pointer in 08CDD898) and a few table getters. `tools/mapgraph.py`
 dumps the town-map graph (nodes, edges, angles) from a savestate; `tools/showfn.py` prints a function's disassembly
 together with the relocated constants from the generated C++.
 
