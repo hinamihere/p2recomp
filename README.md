@@ -23,7 +23,9 @@ awakening (movie, Philemon scene) and the first scripted battle against the Joke
 battle effects). Saving and loading through the game's own menus is verified. Seven Sisters High (the first
 dungeon) loads; a random encounter starts (flash transition, loading, battle scene) and the
 demon contact/negotiation tutorial plays through, including the Contact menu and the reward.
-Not verified yet: the fighting commands (attack, Persona, items) of a full battle and later areas. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+A normal fight also runs end to end (Tactics menu, attacks with damage numbers, enemy turns, damage to
+the party, victory and return to the dungeon). Not verified yet: Persona/skill/item commands, boss
+fights, saving at a dungeon save point and later areas. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 

@@ -24,7 +24,7 @@ def main():
         for n in sorted(os.listdir(frames)):
             a = np.asarray(Image.open(os.path.join(frames, n)).convert("RGB")).astype(int)
             # bright flash / white-out frames or a battle command window: dark-red box at bottom with text
-            if (a.mean() > 200) or False:
+            if a.mean() > 235 and a.std() < 40:
                 first_hit = n; break
         print(f"seed {seed}: {'flash at ' + first_hit if first_hit else 'no flash'}")
         if first_hit:
