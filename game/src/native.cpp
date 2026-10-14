@@ -80,11 +80,18 @@ bool compare_state(u32 addr, const AllegrexContext &want, const AllegrexContext 
     return ok;
 }
 
-bool compare_ram(u32 addr, const u8 *want, const u8 *got, size_t size) {
+// The callee's own stack frame (below the caller's $sp) is dead memory afterwards: a replacement does not
+// have to reproduce the original's spills, so differences there are ignored.
+bool compare_ram(u32 addr, const u8 *want, const u8 *got, size_t size, u32 dead_lo, u32 dead_hi) {
     if (std::memcmp(want, got, size) == 0) return true;
+    bool same = true;
     int shown = 0;
-    for (size_t i = 0; i + 4 <= size && shown < 6; i += 4) {
+    for (size_t i = 0; i + 4 <= size; i += 4) {
+        const u32 guest_addr = kRamBase + static_cast<u32>(i);
+        if (guest_addr >= dead_lo && guest_addr < dead_hi) continue;
         if (std::memcmp(want + i, got + i, 4) != 0) {
+            same = false;
+            if (shown >= 6) continue;
             u32 w, g;
             std::memcpy(&w, want + i, 4);
             std::memcpy(&g, got + i, 4);
@@ -92,7 +99,7 @@ bool compare_ram(u32 addr, const u8 *want, const u8 *got, size_t size) {
             ++shown;
         }
     }
-    return false;
+    return same;
 }
 
 // Runs original and native on identical state and compares them. Leaves `c` and RAM in the original's
@@ -114,7 +121,7 @@ bool verify_call(Runtime &r, AllegrexContext &c, u32 addr, void (*native)(Runtim
     native(r, c);
 
     bool ok = compare_state(addr, original_result, c);
-    ok &= compare_ram(addr, g_after.data(), ram, size);
+    ok &= compare_ram(addr, g_after.data(), ram, size, start.gpr[29] - 0x2000u, start.gpr[29]);
     if (!ok) {
         std::memcpy(ram, g_after.data(), size); // keep the game on the original's behaviour
         c = original_result;

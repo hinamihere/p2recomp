@@ -181,6 +181,123 @@ u32 get_word_80e4() { return g_word_80e4; }                          // 088EB73C
 u32 get_object_60e4() { return kObjectAt60e4; }                      // 088EB8DC
 void get_view_point(Point16 *out) { *out = g_view_point.get(); }     // 08864A24
 
+// ===== town map cursor ======================================================================================
+
+// The town map is a graph. Nodes are road junctions, places and event spots; up to four edges leave each node.
+// Edge ids in a node's list have bit 7 set when the node is the edge's far end (node_b), so the edge is
+// walked backwards. Angles use 4096 units per turn, 0 = east, 1024 = north.
+struct MapNode {
+    u16 x, y;
+    u8 type; // 01 road, 04 place (IN), 10 event gate, 20 map exit, 40 person event
+    u8 unknown5[3];
+    u8 place;
+    u8 unknown9;
+    u8 edges[4]; // 0xFF = none
+    u8 unknown14[2];
+};
+struct MapEdge {
+    u16 length;
+    s16 angle; // direction from node_a to node_b
+    u8 node_a, node_b;
+    u16 unknown6;
+};
+struct MapCursor {
+    u32 x, y;       // 20.12 fixed point
+    s32 ix, iy;     // integer position
+    u32 progress;   // 20.12 distance along the current edge, measured from node_b
+    u8 unknown14[2];
+    u8 edge;        // current edge while travelling
+    u8 node;        // current node while standing on one, otherwise 0xFF
+};
+static_assert(sizeof(MapNode) == 16 && sizeof(MapEdge) == 8 && sizeof(MapCursor) == 0x18);
+
+// For each of the eight stick directions: the pad bits, and two angle windows [w0,w1) and [w2,w3) of the
+// edges that direction may select (+-67.5 degrees around its heading; the second window handles wrap-around).
+struct DirWindow { u16 w[4]; };
+Global<std::array<u8, 8>, 0x08BBCA80> g_stick_dirs; // up, right, down, left, up+right, right+down, down+left, left+up
+Global<std::array<DirWindow, 8>, 0x08C1FDEC> g_dir_windows;
+Global<std::array<u8, 4>, 0x08CD3D30> g_dir_history; // last four directions taken (index into g_stick_dirs), newest last
+Global<u32, 0x08E4435C> g_map_nodes_ptr;
+Global<u32, 0x08E44514> g_map_edges_ptr;
+Global<MapCursor, 0x08E444F8> g_map_cursor;
+Global<u16, 0x08E43578> g_map_cursor_idle;
+
+// 0889E76C: the cursor stands on a node and the stick points somewhere: pick the edge to walk. Of the node's
+// four edges the one whose angle is closest to the stick's heading is chosen, if it lies inside that
+// direction's window; the cursor then leaves the node along it.
+void map_cursor_pick_edge(u32 stick) {
+    u32 dir = stick & 0xFF;
+    if ((dir & PAD_UP) && (dir & PAD_DOWN)) dir &= 0xBF;  // up+down: up wins
+    if ((dir & PAD_RIGHT) && (dir & PAD_LEFT)) dir &= 0x7F; // right+left: right wins
+
+    MapCursor &cursor = g_map_cursor;
+    if (cursor.node == 0xFF) return; // already travelling
+
+    const auto &dirs = g_stick_dirs.get();
+    int index = 0;
+    while (index < 8 && dirs[index] != dir) ++index;
+    if (index == 8) return; // not one of the eight stick directions
+
+    // Pressing towards the opposite of the previous move only counts if that opposite was already part of
+    // the recent history; then it is taken as the heading instead of the stick's own direction.
+    const auto &history = g_dir_history.get();
+    u32 opposite = (history[3] + 2u) & 0xFF;
+    if (opposite >= 4) opposite &= 1;
+    if ((dir & dirs[opposite]) && (history[0] == opposite || history[1] == opposite || history[2] == opposite))
+        index = static_cast<int>(opposite);
+
+    const MapNode &node = *guest<MapNode>(g_map_nodes_ptr + cursor.node * sizeof(MapNode));
+    auto edge_entry = [](u32 id) { return guest<MapEdge>(g_map_edges_ptr + id * sizeof(MapEdge)); };
+
+    // Heading of each outgoing edge, away from this node (-1 where the slot is empty).
+    s32 heading[4];
+    for (int k = 0; k < 4; ++k) {
+        const u8 id = node.edges[k];
+        if (id == 0xFF) {
+            heading[k] = -1;
+        } else if (id & 0x80) { // walked backwards: turn around, as signed modulo 4096
+            const s32 turned = edge_entry(id & 0x7F)->angle + 0x1800;
+            const s32 bias = static_cast<s32>(static_cast<u32>(turned >> 31) >> 20);
+            heading[k] = ((turned + bias) & 0xFFF) - bias;
+        } else {
+            heading[k] = edge_entry(id)->angle;
+        }
+    }
+
+    // Distance of each heading to the window centres (w1 and w2); the nearest edge wins for each centre, and
+    // the nearer of the two winners is taken. Empty slots have the largest possible distance.
+    const DirWindow &window = g_dir_windows.get()[index];
+    u32 best_distance[2];
+    int best_slot[2];
+    for (int j = 0; j < 2; ++j) {
+        const s32 centre = window.w[1 + j];
+        u32 distance[4];
+        for (int k = 0; k < 4; ++k) {
+            const s32 d = heading[k] - centre;
+            distance[k] = heading[k] == -1 ? 0xFFFFFFFFu : static_cast<u32>(d > -d ? d : -d);
+        }
+        best_slot[j] = 0;
+        best_distance[j] = distance[0];
+        for (int k = 1; k < 4; ++k) {
+            if (distance[k] < best_distance[j]) {
+                best_distance[j] = distance[k];
+                best_slot[j] = k;
+            }
+        }
+    }
+    const int slot = best_distance[1] < best_distance[0] ? best_slot[1] : best_slot[0];
+    const s32 angle = heading[slot];
+    const bool inside = (angle >= window.w[0] && angle < window.w[1]) || (angle >= window.w[2] && angle < window.w[3]);
+    const u8 chosen = node.edges[slot];
+    if (!inside || chosen == 0xFF) return;
+
+    // Leave the node: progress counts from node_b, so an edge listed without the flag starts at full length.
+    cursor.progress = (chosen & 0x80) ? 0u : static_cast<u32>(edge_entry(chosen)->length) << 12;
+    cursor.node = 0xFF;
+    cursor.edge = chosen & 0x7F;
+    g_map_cursor_idle = 0;
+}
+
 u32 get_map_flag() { return g_map_flag; }                        // 08807C58
 u32 get_pool_ptr() { return g_pool_ptr; }                        // 08963E4C
 u32 get_map_slot(u32 index) { return g_map_slots.get()[index]; } // 088A0508
@@ -262,6 +379,38 @@ void native_fuzz_setup(u32 address, std::mt19937 &rng, AllegrexContext &c) {
         c.gpr[4] = static_cast<u32>(static_cast<s32>(rng() % 10u));
         break;
     }
+    case 0x0889E76Cu: {
+        // A random but well-formed map: 16 nodes (kScratch), 128 edges (kScratch + 0x1000), the real stick tables.
+        constexpr u32 kNodes = kScratch, kEdges = kScratch + 0x1000;
+        fill(kNodes, 16 * 16);
+        fill(kEdges, 128 * 8);
+        for (u32 n = 0; n < 16; ++n)
+            for (u32 k = 0; k < 4; ++k) {
+                const u32 r = rng() % 6u;
+                guest<MapNode>(kNodes + n * 16)->edges[k] = r == 0 ? 0xFF : static_cast<u8>((rng() % 128u) | ((rng() & 1u) << 7));
+            }
+        for (u32 e = 0; e < 128; ++e) {
+            guest<MapEdge>(kEdges + e * 8)->length = static_cast<u16>(rng() % 100u);
+            guest<MapEdge>(kEdges + e * 8)->angle = (rng() % 20u == 0u) ? static_cast<s16>(rng()) : static_cast<s16>(rng() % 4096u);
+        }
+        g_map_nodes_ptr = kNodes;
+        g_map_edges_ptr = kEdges;
+        const u8 dirs[8] = {0x10, 0x20, 0x40, 0x80, 0x30, 0x60, 0xC0, 0x90};
+        const u16 windows[8][4] = {{256, 1024, 1024, 1792}, {3328, 4096, 0, 768}, {2304, 3072, 3072, 3840}, {1280, 2048, 2048, 2816},
+                                   {0, 512, 512, 1024}, {3072, 3584, 3584, 4096}, {2048, 2560, 2560, 3072}, {1024, 1536, 1536, 2048}};
+        for (int i = 0; i < 8; ++i) {
+            g_stick_dirs.get()[i] = dirs[i];
+            for (int w = 0; w < 4; ++w) g_dir_windows.get()[i].w[w] = windows[i][w];
+        }
+        for (int i = 0; i < 4; ++i) g_dir_history.get()[i] = static_cast<u8>(rng() % 8u);
+        MapCursor &cursor = g_map_cursor;
+        cursor.node = (rng() % 6u == 0u) ? 0xFF : static_cast<u8>(rng() % 16u);
+        cursor.edge = static_cast<u8>(rng());
+        cursor.progress = rng();
+        g_map_cursor_idle = static_cast<u16>(rng());
+        c.gpr[4] = (rng() % 5u == 0u) ? rng() : (rng() % 3u == 0u ? (dirs[rng() % 8u] | dirs[rng() % 8u]) : dirs[rng() % 8u]);
+        break;
+    }
     case 0x088523F0u:
     case 0x0885244Cu:
         c.gpr[4] &= 0x7Fu;
@@ -304,3 +453,4 @@ P2_NATIVE(0885244C, p2::game::table_c668_get)
 P2_NATIVE(088EB73C, p2::game::get_word_80e4)
 P2_NATIVE(088EB8DC, p2::game::get_object_60e4)
 P2_NATIVE_VOID(08864A24, p2::game::get_view_point)
+P2_NATIVE_VOID(0889E76C, p2::game::map_cursor_pick_edge)
