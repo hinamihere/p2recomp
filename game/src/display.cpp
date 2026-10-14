@@ -283,7 +283,14 @@ void on_vblank() {
                 char *end = nullptr;
                 const u32 addr = static_cast<u32>(std::strtoul(p + 1, &end, 16));
                 if (end == nullptr || *end != ',') break;
-                const float value = std::strtof(end + 1, &end);
+                // A value written as xHEX is stored as a raw 32-bit integer (e.g. x2).
+                float value;
+                if (end[1] == 'x') {
+                    const u32 raw = static_cast<u32>(std::strtoul(end + 2, &end, 16));
+                    std::memcpy(&value, &raw, 4);
+                } else {
+                    value = std::strtof(end + 1, &end);
+                }
                 v.emplace_back(addr, value);
                 p = end != nullptr && *end == ',' ? end : nullptr;
             }
@@ -291,12 +298,13 @@ void on_vblank() {
         return v;
     }();
     static const u64 poke_at = [] { const char *e = std::getenv("P2_POKE"); return e ? std::strtoull(e, nullptr, 0) : 0ull; }();
-    if (!pokes.empty() && K.vblank_count() == poke_at) {
+    static const bool poke_hold = std::getenv("P2_POKE_HOLD") != nullptr;
+    if (!pokes.empty() && (poke_hold ? K.vblank_count() >= poke_at : K.vblank_count() == poke_at)) {
         for (const auto &[addr, value] : pokes) {
             u32 bits;
             std::memcpy(&bits, &value, 4);
             mem().store32(addr, bits);
-            LOG_I("poke", "%08x = %.3f", addr, static_cast<double>(value));
+            if (!poke_hold) LOG_I("poke", "%08x = %.3f", addr, static_cast<double>(value));
         }
     }
     if (!watch.empty()) {
@@ -306,7 +314,9 @@ void on_vblank() {
             float f;
             std::memcpy(&f, &bits, 4);
             char buf[32];
-            std::snprintf(buf, sizeof(buf), " %.3f", static_cast<double>(f));
+            static const bool as_int = std::getenv("P2_WATCH_INT") != nullptr;
+            if (as_int) std::snprintf(buf, sizeof(buf), " %u", bits);
+            else std::snprintf(buf, sizeof(buf), " %.3f", static_cast<double>(f));
             line += buf;
         }
         LOG_I("watch", "%s", line.c_str());
