@@ -281,6 +281,10 @@ u32 explore_buttons() {
         u64 last_check{}, last_move{}, last_log{}, battle_since{}, last_heal{}, last_event_press{};
         bool was_battle{}, event_seen{};
         int heals{};
+        int checkpoint_slot{-1};          // P2_EXPLORE_CHECKPOINT: savestate slot used for rollbacks
+        u64 last_checkpoint{}, last_now{};
+        int checkpoint_heals{}, rollbacks{};
+        u64 load_vblank{}; // vblank right after the last savestate load (rollback cooldown)
         std::vector<std::pair<u64, u32>> macro; // (start vblank, buttons) taps of a running macro
         u64 macro_end{};
         std::mt19937 rng;
@@ -289,6 +293,7 @@ u32 explore_buttons() {
         Explorer r;
         unsigned xa = 0, za = 0;
         if (std::sscanf(env, "%x,%x", &xa, &za) == 2) { r.xaddr = xa; r.zaddr = za; }
+        if (const char *slot = std::getenv("P2_EXPLORE_CHECKPOINT")) r.checkpoint_slot = std::atoi(slot);
         if (const char *avoid = std::getenv("P2_EXPLORE_AVOID"))
             std::sscanf(avoid, "%f,%f,%f,%f", &r.avoid_x0, &r.avoid_z0, &r.avoid_x1, &r.avoid_z1);
         const char *seed = std::getenv("P2_EXPLORE_SEED");
@@ -304,6 +309,48 @@ u32 explore_buttons() {
     static u64 battle_hold_until = 0;
     if (battle_like_screen()) battle_hold_until = now + 150u; // dimmed dialogs between battle screens must not end it
     const bool battle = now < battle_hold_until;
+
+    // A savestate load rewinds the vblank counter: forget all timers.
+    if (now < e.last_now) {
+        e.macro.clear();
+        e.last_check = 0; e.last_move = 0; e.last_log = 0; e.battle_since = now; e.last_heal = 0; e.last_event_press = 0;
+        e.cell = {INT_MIN, 0};
+        e.was_battle = false;
+        battle_hold_until = 0;
+        e.load_vblank = now;
+    }
+    e.last_now = now;
+
+    // Checkpoints and rollbacks (P2_EXPLORE_CHECKPOINT=<slot>): while the whole party is healthy outside a fight a
+    // checkpoint is saved every 1500 vblanks; if two members are knocked out, or the Medicine is used up and someone
+    // is below a third of their HP, the run rolls back to the checkpoint and tries a different random route.
+    if (e.checkpoint_slot >= 0 && e.macro.empty()) {
+        int down = 0, hurt = 0, healthy = 0;
+        for (int i = 0; i < 3; ++i) {
+            const u32 base = kParty + 0x54u * static_cast<u32>(i);
+            const float hp = static_cast<float>(mem().load16(base)), max_hp = static_cast<float>(mem().load16(base + 2));
+            if (max_hp <= 0.f) continue;
+            down += hp == 0.f ? 1 : 0;
+            hurt += hp / max_hp < 0.34f ? 1 : 0;
+            healthy += hp / max_hp >= 0.6f ? 1 : 0;
+        }
+        const bool bad = now - e.load_vblank > 900u && (down >= 2 || (e.heals >= 3 && hurt >= 1 && !battle));
+        if (bad && e.last_checkpoint != 0u && now - e.last_checkpoint > 300u && e.rollbacks < 40) {
+            ++e.rollbacks;
+            LOG_I("explore", "rollback %d: %d knocked out, %d badly hurt, heals used %d (vblank %llu)", e.rollbacks, down, hurt, e.heals,
+                  static_cast<unsigned long long>(now));
+            e.heals = e.checkpoint_heals;
+            e.rng.seed(static_cast<unsigned>(e.rollbacks * 7919 + 13));
+            e.last_checkpoint = 0u;
+            savestate_request_load(e.checkpoint_slot);
+            return 0u;
+        }
+        if (!battle && healthy == 3 && (e.last_checkpoint == 0u || now - e.last_checkpoint > 1500u)) {
+            savestate_request_save(e.checkpoint_slot);
+            e.last_checkpoint = now;
+            e.checkpoint_heals = e.heals;
+        }
+    }
     const std::pair<int, int> cell{static_cast<int>(std::floor(x / 200.f)), static_cast<int>(std::floor(z / 200.f))};
 
     if (battle != e.was_battle) {
@@ -317,6 +364,8 @@ u32 explore_buttons() {
     // Macro in progress (healing): it owns the buttons until it is over.
     if (!e.macro.empty()) {
         if (now >= e.macro_end) {
+            LOG_I("explore", "medicine macro finished: HP %u/%u %u/%u %u/%u", mem().load16(kParty), mem().load16(kParty + 2),
+                  mem().load16(kParty + 0x54), mem().load16(kParty + 0x56), mem().load16(kParty + 0xA8), mem().load16(kParty + 0xAA));
             e.macro.clear();
             e.last_move = now; e.last_check = now; e.last_x = x; e.last_z = z;
         } else {
@@ -343,10 +392,12 @@ u32 explore_buttons() {
             const float hp = static_cast<float>(mem().load16(base)), max_hp = static_cast<float>(mem().load16(base + 2));
             if (max_hp > 0.f && hp / max_hp < worst_fraction) { worst_fraction = hp / max_hp; worst = i; }
         }
-        if (worst >= 0 && e.heals < 3 && now - e.last_heal > 1500u && now - e.battle_since > 200u) {
+        if (worst >= 0 && e.heals < 3 && now - e.last_heal > 1500u && now - e.battle_since > 400u && now - e.last_move < 90u && e.last_move != 0u) {
             e.heals++;
             e.last_heal = now;
-            LOG_I("explore", "party member %d is hurt: using Medicine (%d/3)", worst, e.heals);
+            LOG_I("explore", "party member %d is hurt: using Medicine (%d/3), HP %u/%u %u/%u %u/%u", worst, e.heals,
+                  mem().load16(kParty), mem().load16(kParty + 2), mem().load16(kParty + 0x54), mem().load16(kParty + 0x56),
+                  mem().load16(kParty + 0xA8), mem().load16(kParty + 0xAA));
             u64 t = now + 5u;
             auto tap = [&](u32 buttons, u64 gap) { e.macro.emplace_back(t, buttons); t += gap; };
             tap(kTriangle, 60); tap(kDown, 40); tap(kCross, 60); // Command menu, Items, open the item categories

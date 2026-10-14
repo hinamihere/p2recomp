@@ -148,7 +148,8 @@ towards the least visited neighbouring grid cell, turns away from walls it bumpe
 taps Cross (doors, dialogue). Battle and menu screens are recognised from the frame contents (red UI bar on top or red party
 panels at the bottom, with a 2 s hysteresis): there it only taps Cross, which fights with the default commands. When a party
 member is below half HP it drinks Medicine through the Triangle menu (three times at most). It does not avoid fights it cannot
-win, so long runs can get party members knocked out. `tools/bannerscan.py` lists the area banners that appear during a run
+win; `P2_EXPLORE_CHECKPOINT=<slot>` saves a savestate every 1500 vblanks while the party is healthy and rolls back to it
+(with a different random route) when two members are knocked out or the Medicine is used up and someone is badly hurt. `tools/bannerscan.py` lists the area banners that appear during a run
 (seed 0 = the bot), `tools/bubblescan.py` finds the "!" interaction bubbles while walking, `tools/dungeonwalk.py` is the scripted
 random-walk variant. Useful memory words: party HP/max HP/SP/max SP are u16 at 08E3CCBC + 0x54*member.
 
