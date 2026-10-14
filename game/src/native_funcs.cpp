@@ -2,8 +2,11 @@
 // game/overrides.txt; each P2_NATIVE line at the bottom binds a C++ function to one of them. Names are
 // guesses from reading the code: the game ships without symbols.
 #include "native.hpp"
+#include "kernel.hpp"
 
 #include <array>
+#include <cstdlib>
+#include <map>
 
 namespace p2::game {
 
@@ -85,6 +88,12 @@ bool pad_dir_b(u32 mask) { return !dpad_blocked(mask) && (mapped_buttons(g_butto
 
 // 08851C30: the game's random number generator; returns 31 random bits.
 u32 game_rand() {
+    static const bool log_callers = std::getenv("P2_RANDLOG") != nullptr;
+    if (log_callers) {
+        const u32 ra = rt().cpu().gpr[31];
+        if (ra != 0x0880517Cu && ra != 0x089626E4u)
+            LOG_I("rand", "call ra=%08x v=%llu", ra, static_cast<unsigned long long>(g_kernel.vblank_count()));
+    }
     const u32 seed = g_rng_seed;
     const u32 t = seed * 41u;
     const u32 hi = t >> 16;
@@ -454,3 +463,17 @@ P2_NATIVE(088EB73C, p2::game::get_word_80e4)
 P2_NATIVE(088EB8DC, p2::game::get_object_60e4)
 P2_NATIVE_VOID(08864A24, p2::game::get_view_point)
 P2_NATIVE_VOID(0889E76C, p2::game::map_cursor_pick_edge)
+
+// 08962BE8: the field random-encounter check (called with the distance walked this frame; it accumulates it, rolls
+// once per 512 units and returns the encounter group or 0). With P2_NO_ENCOUNTERS set it never starts an
+// encounter (used by the mapping bot); otherwise the original code runs unchanged.
+namespace psprecomp {
+void p2_native_08962BE8(Runtime &r, AllegrexContext &c) {
+    static const bool off = std::getenv("P2_NO_ENCOUNTERS") != nullptr;
+    if (off) {
+        c.gpr[2] = 0;
+        return;
+    }
+    p2::call_original(r, c, 0x08962BE8u);
+}
+} // namespace psprecomp

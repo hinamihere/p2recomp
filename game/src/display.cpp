@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <chrono>
 #include <thread>
+#include <array>
 #include <climits>
 #include <cstdint>
 #include <map>
@@ -241,6 +242,17 @@ u32 climb_buttons() {
     return kDirs[dir];
 }
 
+// Battle: Triangle on the Tactics menu starts Auto-Battle (the party fights on its own until the end); Cross pages
+// through the result screens.
+bool battle_panels_visible(); // red party panels along the bottom: a battle, not a field menu
+u32 battle_taps(u64 now) {
+    const u64 t = now % 120u;
+    if (t < 3u && battle_panels_visible()) return 0x1000u; // Triangle (never in the field: it opens the command menu)
+    if (t >= 40u && t < 43u) return 0x4000u;               // Cross
+    if (t >= 80u && t < 83u) return 0x4000u;
+    return 0u;
+}
+
 // Heuristic used by the exploration bot: battle and menu screens carry a red UI bar along the top (right of the
 // location banner) or red party panels along the bottom; the field view has neither.
 bool battle_like_screen() {
@@ -256,6 +268,17 @@ bool battle_like_screen() {
         return static_cast<float>(red) / static_cast<float>(total);
     };
     return red_fraction(210, 470, 3, 21) > 0.35f || red_fraction(30, 300, 212, 266) > 0.12f;
+}
+
+bool battle_panels_visible() {
+    int red = 0, total = 0;
+    for (int y = 212; y < 266; ++y)
+        for (int x = 30; x < 300; ++x) {
+            const u32 p = g_frame[static_cast<std::size_t>(y) * 480 + x];
+            red += ((p & 0xFF) > 110 && ((p >> 8) & 0xFF) < 70 && ((p >> 16) & 0xFF) < 70) ? 1 : 0;
+            ++total;
+        }
+    return red * 100 > total * 12;
 }
 
 // P2_EXPLORE=1 (or "<xaddr>,<zaddr>" in hex): dungeon exploration bot. It reads the position of the party
@@ -378,7 +401,7 @@ u32 explore_buttons() {
     if (battle) {
         // Cross confirms default commands. A battle sequence needs many Crosses in a row, so Circle (back) is only
         // used in bursts once a battle has lasted very long, to leave status pages and similar dead ends.
-        u32 b = (now % 18u < 3u) ? kCross : 0u;
+        u32 b = battle_taps(now);
         const u64 age = now - e.battle_since;
         if (age > 4000u && age % 2000u < 120u && now % 30u < 3u) b = kCircle; // stuck for a long time: back out
         return b;
@@ -468,9 +491,370 @@ u32 explore_buttons() {
     return buttons;
 }
 
+// A (nearly) black frame: the loading screen between the end of a battle and the field.
+bool blackout_screen() {
+    int dark = 0, total = 0;
+    for (std::size_t i = 0; i < g_frame.size(); i += 97) {
+        const u32 p = g_frame[i];
+        dark += ((p & 0xFF) < 14 && ((p >> 8) & 0xFF) < 14 && ((p >> 16) & 0xFF) < 14) ? 1 : 0;
+        ++total;
+    }
+    return dark * 100 > total * 88;
+}
+
+// A (nearly) white frame is the flash of a battle starting or a screen transition.
+bool whiteout_screen() {
+    int white = 0, total = 0;
+    for (std::size_t i = 0; i < g_frame.size(); i += 97) {
+        const u32 p = g_frame[i];
+        white += ((p & 0xFF) > 225 && ((p >> 8) & 0xFF) > 225 && ((p >> 16) & 0xFF) > 225) ? 1 : 0;
+        ++total;
+    }
+    return white * 100 > total * 55;
+}
+
+// P2_ENCDBG=1: finds the random-encounter counter. Keeps RAM snapshots every 30 vblanks while the field is shown;
+// when a battle flash starts, it logs words that rose in each of the last snapshots and are lower now (a counter that
+// was reset). Candidates seen at several battles are printed with their hit count.
+void encounter_debug(u64 now, bool whiteout) {
+    static const bool on = std::getenv("P2_ENCDBG") != nullptr;
+    if (!on) return;
+    static std::vector<u32> s0, s1, s2;
+    static u64 last_snap = 0;
+    static bool was_white = false;
+    static std::map<u32, int> hits;
+    static int battles = 0;
+    const u32 words = static_cast<u32>(mem().size() / 4u);
+    const u32 *ram = reinterpret_cast<const u32 *>(mem().raw_pointer(0x08000000u, mem().size()));
+    if (!whiteout && now - last_snap >= 30u) {
+        last_snap = now;
+        s0.swap(s1);
+        s1.swap(s2);
+        s2.assign(ram, ram + words);
+    }
+    if (whiteout && !was_white && !s0.empty() && !s1.empty() && !s2.empty()) {
+        ++battles;
+        std::map<u32, int> now_hits;
+        for (u32 i = 0; i < words; ++i) {
+            const u32 a = s0[i], b = s1[i], c = s2[i], d = ram[i];
+            const bool up = a < b && b < c && c < 100000u && d < c && c - a < 4000u;      // counts up, then reset
+            const bool down = a > b && b > c && a < 100000u && d > c && a - c < 4000u;   // counts down, then reloaded
+            if (up || down) now_hits[i]++;
+        }
+        for (const auto &[i, _] : now_hits) ++hits[i];
+        LOG_I("encdbg", "battle %d at vblank %llu: %zu candidate words", battles, static_cast<unsigned long long>(now), now_hits.size());
+        if (battles % 4 == 0) {
+            for (const auto &[i, h] : hits)
+                if (h * 10 >= battles * 6 && h >= 3) LOG_I("encdbg", "  %08x seen in %d of %d battles (now %u)", 0x08000000u + i * 4u, h, battles, ram[i]);
+        }
+    }
+    was_white = whiteout;
+}
+
+// The white "!" speech bubble above the party leader (something to interact with is in reach).
+bool bubble_visible() {
+    int white = 0;
+    for (int y = 52; y < 80; ++y)
+        for (int x = 224; x < 256; ++x) {
+            const u32 p = g_frame[static_cast<std::size_t>(y) * 480 + x];
+            white += ((p & 0xFF) > 225 && ((p >> 8) & 0xFF) > 225 && ((p >> 16) & 0xFF) > 225) ? 1 : 0;
+        }
+    return white > 60;
+}
+
+// P2_MAPPER=<output file>: dungeon mapping bot. It keeps a grid (cells of 40 world units) of what it has learned
+// about the area: for every cell and direction whether walking out of the cell is possible, blocked or unknown.
+// It repeatedly plans a route through known passable edges to the nearest cell that still has an unknown
+// direction, walks there by steering to cell centres, and probes the direction by pushing into it. "!" interaction
+// events (08CA269C) and area exits (a sudden jump of the position) are recorded too. Battles are fought with Cross;
+// after an area change or when the party is in trouble the run rolls back to the savestate taken at the start
+// (P2_MAPPER_SLOT, default 901). The map is written to the file every ~2000 vblanks and when it is complete:
+//   "C <cx> <cz> <up> <down> <left> <right>" (1 passable, 0 blocked, -1 unknown), "V ..." visited cells,
+//   "EV <cx> <cz> <dir>" interaction events, "EXIT <cx> <cz> <dir>" area exits.
+// Taps that get through result pages, dialogues and level-up screens (Right adds a stat point, Cross confirms).
+u32 confirm_taps(u64 now) {
+    const u64 t = now % 36u;
+    if (t < 3u) return 0x4000u;           // Cross
+    if (t >= 12u && t < 15u) return 0x20u; // Right
+    if (t >= 24u && t < 27u) return 0x4000u;
+    return 0u;
+}
+
+u32 mapper_buttons() {
+    static const char *out_path = std::getenv("P2_MAPPER");
+    if (out_path == nullptr) return 0u;
+    constexpr float kCell = 48.f; // about one step of the party (they move ~48 units per game frame)
+    constexpr u32 kEventFlag = 0x08CA269Cu, kParty = 0x08E3CCBCu;
+    static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
+    static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
+    using Cell = std::pair<int, int>;
+    enum class Mode { Plan, Walk, Probe, Done };
+    struct Mapper {
+        u32 xaddr{0x08CD4190u}, zaddr{0x08CD4198u};
+        std::map<Cell, std::array<int, 4>> edges;
+        std::set<Cell> visited;
+        std::set<std::tuple<int, int, int>> events, exits;
+        Mode mode{Mode::Plan};
+        std::vector<Cell> route;
+        std::size_t route_i{};
+        Cell probe_cell{};
+        int probe_dir{};
+        float start_x{}, start_z{}, last_x{}, last_z{};
+        u64 probe_start{}, last_progress{}, last_save{}, last_check{}, start_vblank{};
+        int checkpoint_slot{901};
+        bool checkpoint_saved{};
+        u64 load_vblank{}, last_now{};
+        int rollbacks{};
+        float prev_x{}, prev_z{};
+        float good_x{}, good_z{};
+        bool good_valid{};
+        Cell last_cell{INT_MIN, 0};
+        std::map<std::tuple<int, int, int>, int> blocked_seen; // how often (cell, dir) was found blocked
+        u64 battle_hold{}, wait_until{};
+        std::tuple<int, int, int> retry_key{INT_MIN, 0, 0}; // (cell, dir) of a probe that has already failed once
+    };
+    static Mapper m = [] {
+        Mapper r;
+        if (const char *slot = std::getenv("P2_MAPPER_SLOT")) r.checkpoint_slot = std::atoi(slot);
+        return r;
+    }();
+    const u64 now = g_kernel.vblank_count();
+    const float x = guest_float(m.xaddr), z = guest_float(m.zaddr);
+    const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
+    auto centre = [&](Cell c) { return std::pair<float, float>{(static_cast<float>(c.first) + 0.5f) * kCell, (static_cast<float>(c.second) + 0.5f) * kCell}; };
+    auto edge = [&](Cell c) -> std::array<int, 4> & {
+        auto it = m.edges.find(c);
+        if (it == m.edges.end()) it = m.edges.emplace(c, std::array<int, 4>{-1, -1, -1, -1}).first;
+        return it->second;
+    };
+    auto neighbour = [&](Cell c, int d) { return Cell{c.first + kDx[d], c.second + kDz[d]}; };
+    auto opposite = [](int d) { return d ^ 1; }; // 0<->1 (up/down), 2<->3 (left/right)
+    auto save_map = [&] {
+        std::FILE *f = std::fopen(out_path, "w");
+        if (f == nullptr) return;
+        for (const auto &[c, e] : m.edges) std::fprintf(f, "C %d %d %d %d %d %d\n", c.first, c.second, e[0], e[1], e[2], e[3]);
+        for (const auto &c : m.visited) std::fprintf(f, "V %d %d\n", c.first, c.second);
+        for (const auto &[cx, cz, d] : m.events) std::fprintf(f, "EV %d %d %d\n", cx, cz, d);
+        for (const auto &[cx, cz, d] : m.exits) std::fprintf(f, "EXIT %d %d %d\n", cx, cz, d);
+        std::fclose(f);
+    };
+
+    // A savestate load rewinds the vblank counter.
+    if (now < m.last_now) {
+        m.load_vblank = now;
+        m.mode = Mode::Plan;
+        m.battle_hold = 0;
+        m.last_check = 0;
+    }
+    m.last_now = now;
+
+    // First call: take the checkpoint used for rollbacks.
+    if (!m.checkpoint_saved && now > 20u) {
+        m.checkpoint_saved = true;
+        savestate_request_save(m.checkpoint_slot);
+        m.start_vblank = now;
+        LOG_I("mapper", "checkpoint requested in slot %d at (%.0f, %.0f)", m.checkpoint_slot, x, z);
+    }
+    auto rollback = [&](const char *why) {
+        ++m.rollbacks;
+        LOG_I("mapper", "rollback %d (%s) at vblank %llu, %zu cells known", m.rollbacks, why, static_cast<unsigned long long>(now), m.edges.size());
+        m.load_vblank = now + 1000000u; // block repeated requests until the load has happened
+        savestate_request_load(m.checkpoint_slot);
+    };
+
+    // Battles and menus: confirm with Cross; the walker resumes afterwards.
+    encounter_debug(now, whiteout_screen());
+    if (battle_like_screen() || whiteout_screen() || blackout_screen()) m.battle_hold = now + 420u; // results, level-ups and the fade back to the field follow
+    if (now < m.battle_hold + 360u && m.battle_hold != 0u) {
+        // Still settling after a fight (results, level-ups, loading, fade-in): only confirm, never probe. Right (adds
+        // stat points) is only used in the first part: later it would just walk the party around and draw encounters.
+        if (now >= m.battle_hold) return now < m.battle_hold + 160u ? confirm_taps(now) : ((now % 60u < 3u) ? 0x4000u : 0u);
+    }
+    if (now < m.battle_hold) {
+        m.last_check = 0;
+        m.mode = Mode::Plan;
+        m.retry_key = std::make_tuple(INT_MIN, 0, 0);
+        m.probe_start = 0;
+        int down = 0;
+        for (int i = 0; i < 3; ++i) down += mem().load16(kParty + 0x54u * static_cast<u32>(i)) == 0u ? 1 : 0;
+        if (down >= 2 && m.checkpoint_saved && now - m.start_vblank > 100u) rollback("party knocked out");
+        return battle_taps(now);
+    }
+
+    // Large jump of the position since the last settled field frame: another area (or a door transition). Record the exit
+    // and start over. (Loading screens in between hide the jump from frame-to-frame checks.)
+    const bool settled = now >= m.battle_hold + 360u;
+    if (settled && m.good_valid && (std::fabs(x - m.good_x) > 1500.f || std::fabs(z - m.good_z) > 1500.f)) {
+        // The cell the party was in before the jump (last_cell, which is still the old area's cell) is the exit.
+        const bool probing = m.mode == Mode::Probe && m.last_cell == m.probe_cell;
+        const int dir = probing ? m.probe_dir : 4;
+        m.exits.insert({m.last_cell.first, m.last_cell.second, dir});
+        if (probing) edge(m.probe_cell)[static_cast<std::size_t>(m.probe_dir)] = 1; // walkable; it just leads elsewhere
+        LOG_I("mapper", "area change at (%d,%d) direction %d: now at (%.0f,%.0f)", m.last_cell.first, m.last_cell.second, dir, x, z);
+        save_map();
+        m.last_cell = {INT_MIN, 0};
+        m.good_valid = false;
+        rollback("area change");
+        return 0u;
+    }
+    if (settled && !m.good_valid && x > 1000.f) { m.good_x = x; m.good_z = z; m.good_valid = true; }
+    if (settled && m.good_valid && std::fabs(x - m.good_x) < 400.f && std::fabs(z - m.good_z) < 400.f) { m.good_x = x; m.good_z = z; }
+    if (m.last_check == 0u || now - m.last_check >= 8u) { m.prev_x = x; m.prev_z = z; m.last_check = now; }
+    // A step between adjacent cells that actually happened is the ground truth for that edge.
+    if (m.last_cell.first != INT_MIN && here != m.last_cell) {
+        for (int d = 0; d < 4; ++d)
+            if (neighbour(m.last_cell, d) == here) {
+                edge(m.last_cell)[static_cast<std::size_t>(d)] = 1;
+                edge(here)[static_cast<std::size_t>(opposite(d))] = 1;
+            }
+    }
+    m.last_cell = here;
+    m.visited.insert(here);
+    if (bubble_visible()) m.events.insert({here.first, here.second, 4}); // 4 = reachable from this cell, direction unknown
+    if (now - m.last_save > 2000u) { m.last_save = now; save_map(); LOG_I("mapper", "vblank %llu at (%.0f, %.0f): %zu cells, %zu visited, %zu events, %zu exits", static_cast<unsigned long long>(now), x, z, m.edges.size(), m.visited.size(), m.events.size(), m.exits.size()); }
+    if (m.mode == Mode::Done) {
+        // Done only means "nothing reachable is unknown"; look again now and then (observed steps add edges).
+        if (now % 200u != 0u) return 0u;
+        m.mode = Mode::Plan;
+    }
+
+    // Plan: nearest cell (through known passable edges) with an unknown direction.
+    auto plan = [&]() {
+        std::map<Cell, Cell> parent;
+        std::vector<Cell> queue{here};
+        parent[here] = here;
+        for (std::size_t qi = 0; qi < queue.size(); ++qi) {
+            const Cell c = queue[qi];
+            const auto &e = edge(c);
+            for (int d = 0; d < 4; ++d)
+                if (e[static_cast<std::size_t>(d)] == -1 ||
+                    (e[static_cast<std::size_t>(d)] == 0 && m.blocked_seen[std::make_tuple(c.first, c.second, d)] < 2)) {
+                    // reached a cell with something to learn
+                    std::vector<Cell> path;
+                    for (Cell p = c; p != here; p = parent[p]) path.push_back(p);
+                    std::reverse(path.begin(), path.end());
+                    m.route = path;
+                    m.route_i = 0;
+                    m.probe_cell = c;
+                    m.probe_dir = d;
+                    return true;
+                }
+            for (int d = 0; d < 4; ++d) {
+                if (e[static_cast<std::size_t>(d)] != 1) continue;
+                const Cell n = neighbour(c, d);
+                if (parent.count(n)) continue;
+                parent[n] = c;
+                queue.push_back(n);
+            }
+        }
+        return false;
+    };
+
+    if (now < m.wait_until) return (now % 36u < 3u) ? 0x2000u : 0u; // Circle: say no to whatever prompt blocks the walk (an exit door asks "leave?")
+    if (m.mode == Mode::Plan) {
+        bool found = plan();
+        if (!found) {
+            // Cut off from everything we know (a battle can put the party elsewhere): forget what we think about the
+            // surroundings of this cell and probe it again.
+            auto &e = edge(here);
+            bool all_known = true;
+            for (int d = 0; d < 4; ++d) all_known = all_known && e[static_cast<std::size_t>(d)] != -1;
+            if (all_known) {
+                for (int d = 0; d < 4; ++d) {
+                    e[static_cast<std::size_t>(d)] = -1;
+                    m.blocked_seen.erase(std::make_tuple(here.first, here.second, d));
+                }
+                LOG_I("mapper", "isolated at (%d,%d): probing it afresh", here.first, here.second);
+                found = plan();
+            }
+        }
+        if (!found) {
+            { const auto &e = edge(here); LOG_I("mapper", "no unknown edges reachable from (%d,%d): %d %d %d %d, %zu cells", here.first, here.second, e[0], e[1], e[2], e[3], m.edges.size()); }
+            LOG_I("mapper", "mapping complete: %zu cells, %zu events, %zu exits", m.edges.size(), m.events.size(), m.exits.size());
+            save_map();
+            m.mode = Mode::Done;
+            return 0u;
+        }
+        m.mode = m.route.empty() ? Mode::Probe : Mode::Walk;
+        m.last_progress = now;
+        m.last_x = x; m.last_z = z;
+        m.probe_start = 0; // a probe starts only once the cell is centred
+    }
+
+    if (m.mode == Mode::Walk) {
+        const Cell target = m.route[m.route_i];
+        const auto [tx, tz] = centre(target);
+        const float dx = tx - x, dz = tz - z;
+        if (here == target) {
+            if (++m.route_i >= m.route.size()) {
+                m.mode = Mode::Probe; // arrived in the probe cell
+                m.probe_start = 0;
+            }
+            return 0u;
+        }
+        // no progress for a while: the map was wrong about this edge
+        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 3.f) { m.last_x = x; m.last_z = z; m.last_progress = now; }
+        if (now - m.last_progress > 40u) {
+            const Cell from = m.route_i == 0 ? here : m.route[m.route_i - 1];
+            for (int d = 0; d < 4; ++d) if (neighbour(from, d) == target) edge(from)[static_cast<std::size_t>(d)] = 0;
+            m.mode = Mode::Plan;
+            return 0u;
+        }
+        // steer along the axis with the larger error (one axis at a time keeps to the corridor)
+        if (std::fabs(dx) >= std::fabs(dz)) return dx < 0 ? kDirButtons[2] : kDirButtons[3];
+        return dz < 0 ? kDirButtons[0] : kDirButtons[1];
+    }
+
+    // Probe: centre first, then push into the direction.
+    {
+        const auto [cx, cz] = centre(m.probe_cell);
+        if (m.probe_start == 0u) {
+            m.probe_start = now;
+            m.start_x = x; m.start_z = z;
+            m.last_x = x; m.last_z = z; m.last_progress = now;
+        }
+        const int d = m.probe_dir;
+        static const bool verbose = std::getenv("P2_MAPPER_LOG") != nullptr;
+        if (verbose && now % 20u == 0u) LOG_I("mapper", "probing (%d,%d) dir %d at (%.0f,%.0f) start (%.0f,%.0f)", m.probe_cell.first, m.probe_cell.second, d, x, z, m.start_x, m.start_z);
+        const float moved = (x - m.start_x) * static_cast<float>(kDx[d]) + (z - m.start_z) * static_cast<float>(kDz[d]);
+        if (bubble_visible()) m.events.insert({m.probe_cell.first, m.probe_cell.second, d});
+        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 2.f) { m.last_x = x; m.last_z = z; m.last_progress = now; }
+        const bool stalled = now - m.last_progress > 22u && now - m.probe_start > 22u; // turning to face the new direction takes a moment
+        if (moved >= 0.75f * kCell) {
+            if (verbose) LOG_I("mapper", "cell (%d,%d) dir %d: passable (moved %.0f)", m.probe_cell.first, m.probe_cell.second, d, moved);
+            edge(m.probe_cell)[static_cast<std::size_t>(d)] = 1;
+            edge(neighbour(m.probe_cell, d))[static_cast<std::size_t>(opposite(d))] = 1;
+            m.mode = Mode::Plan;
+            return 0u;
+        }
+        if (stalled || now - m.probe_start > 70u) {
+            // A wall must be seen twice (a battle flash or a door prompt also stops the walk).
+            const auto key = std::make_tuple(m.probe_cell.first, m.probe_cell.second, d);
+            if (m.retry_key != key) {
+                // Unresponsive: maybe a dialogue, a level-up page or a prompt. Confirm for a while, then try again.
+                m.retry_key = key;
+                m.probe_start = 0;
+                m.last_progress = now;
+                m.wait_until = now + 60u;
+                return 0u;
+            }
+            m.retry_key = std::make_tuple(INT_MIN, 0, 0);
+            if (verbose) LOG_I("mapper", "cell (%d,%d) dir %d: blocked (moved %.0f) at (%.0f,%.0f), battle_hold %llu now %llu", m.probe_cell.first, m.probe_cell.second, d, moved, x, z,
+                               static_cast<unsigned long long>(m.battle_hold), static_cast<unsigned long long>(now));
+            edge(m.probe_cell)[static_cast<std::size_t>(d)] = 0;
+            edge(neighbour(m.probe_cell, d))[static_cast<std::size_t>(opposite(d))] = 0;
+            ++m.blocked_seen[std::make_tuple(m.probe_cell.first, m.probe_cell.second, d)];
+            ++m.blocked_seen[std::make_tuple(neighbour(m.probe_cell, d).first, neighbour(m.probe_cell, d).second, opposite(d))];
+            m.mode = Mode::Plan;
+            return 0u;
+        }
+        return kDirButtons[d];
+    }
+}
+
 u32 scripted_buttons() {
     const u64 now = g_kernel.vblank_count();
-    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons();
+    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons() | mapper_buttons();
     for (const auto &p : g_script)
         if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
     return b;

@@ -78,6 +78,10 @@ struct VoidMark { explicit VoidMark(u32 address); };
 
 namespace p2 {
 
+// Runs the original (recompiled) body of a replaced guest function, with the registers in `c` as the arguments.
+// For replacements that only change behaviour in some cases (e.g. switched off by an environment variable).
+bool call_original(Runtime &r, AllegrexContext &c, u32 address);
+
 // Runs the guest function at `address` to completion and returns with its results in `c`.
 // Only for functions that do not block or switch threads. Returns false if it did not complete.
 bool guest_call(Runtime &r, AllegrexContext &c, u32 address);

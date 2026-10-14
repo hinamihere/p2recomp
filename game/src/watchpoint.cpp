@@ -14,6 +14,8 @@
 #include <windows.h>
 
 #include <cstdlib>
+#include <map>
+#include <tuple>
 #include <vector>
 
 namespace p2 {
@@ -111,23 +113,42 @@ int g_read_logs{};
 bool g_read_armed{}, g_read_pending{};
 u64 g_read_at{};
 
+char *g_read_step_page{};
+std::map<std::tuple<bool, u32, u32>, unsigned long long> g_read_seen; // (is_read, ra, pc) -> count
+
 LONG CALLBACK read_handler(PEXCEPTION_POINTERS info) {
-    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    if (code == EXCEPTION_SINGLE_STEP && g_read_step_page != nullptr) {
+        DWORD old;
+        VirtualProtect(g_read_step_page, g_page_size, PAGE_NOACCESS, &old);  // re-arm after the one access
+        g_read_step_page = nullptr;
+        info->ContextRecord->EFlags &= ~0x100u;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    if (code != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
     char *addr = reinterpret_cast<char *>(info->ExceptionRecord->ExceptionInformation[1]);
     if (addr < g_read_lo || addr >= g_read_hi) return EXCEPTION_CONTINUE_SEARCH;
     char *page = reinterpret_cast<char *>(reinterpret_cast<uintptr_t>(addr) & ~(static_cast<uintptr_t>(g_page_size) - 1u));
     DWORD old;
     VirtualProtect(page, g_page_size, PAGE_READWRITE, &old);
-    if (g_read_logs++ < 80) {
-        const auto &c = rt().cpu();
+    g_read_step_page = page;
+    info->ContextRecord->EFlags |= 0x100u; // single-step the faulting instruction, then protect again
+    const bool is_read = info->ExceptionRecord->ExceptionInformation[0] == 0;
+    const auto &c = rt().cpu();
+    const auto key = std::make_tuple(is_read, c.gpr[31], c.gpr[4]);
+    auto it = g_read_seen.find(key);
+    if (it == g_read_seen.end() && g_read_seen.size() < 400) {
+        g_read_seen[key] = 1;
         const u32 guest = g_read_guest_start + static_cast<u32>(addr - g_read_host_start);
         char line[400];
         const int n = std::snprintf(line, sizeof(line),
-            "[readwatch] vblank %llu %s guest %08x: pc %08x ra %08x sp %08x a0-a3 %08x %08x %08x %08x v0 %08x thread %x\n",
-            static_cast<unsigned long long>(g_kernel.vblank_count()), info->ExceptionRecord->ExceptionInformation[0] == 0 ? "READ " : "WRITE",
-            guest, c.pc, c.gpr[31], c.gpr[29], c.gpr[4], c.gpr[5], c.gpr[6], c.gpr[7], c.gpr[2], static_cast<unsigned>(g_kernel.current_uid()));
+            "[readwatch] vblank %llu %s file+%05x: pc %08x ra %08x sp %08x a0-a3 %08x %08x %08x %08x v0 %08x\n",
+            static_cast<unsigned long long>(g_kernel.vblank_count()), is_read ? "READ " : "WRITE", guest - g_read_guest_start, c.pc, c.gpr[31],
+            c.gpr[29], c.gpr[4], c.gpr[5], c.gpr[6], c.gpr[7], c.gpr[2]);
         DWORD written;
         if (n > 0) WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, static_cast<DWORD>(n), &written, nullptr);
+    } else if (it != g_read_seen.end()) {
+        ++it->second;
     }
     return EXCEPTION_CONTINUE_EXECUTION;
 }

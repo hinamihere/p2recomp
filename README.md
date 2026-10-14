@@ -153,6 +153,14 @@ win; `P2_EXPLORE_CHECKPOINT=<slot>` saves a savestate every 1500 vblanks while t
 (seed 0 = the bot), `tools/bubblescan.py` finds the "!" interaction bubbles while walking, `tools/dungeonwalk.py` is the scripted
 random-walk variant. Useful memory words: party HP/max HP/SP/max SP are u16 at 08E3CCBC + 0x54*member.
 
+`P2_MAPPER=<file>` runs a dungeon mapping bot: it keeps a grid of 48-unit cells, plans routes through the edges it has learned to the nearest
+cell with an unknown (or only once-seen blocked) direction, walks there and probes the direction by pushing into it, recording passable and
+blocked edges, "!" interaction spots (the bubble above the leader), area exits (a jump of the position) and visited cells; battles are
+fought with Auto-Battle (Triangle on the Tactics menu) and the walk resumes afterwards. `P2_MAPPER_SLOT` sets the rollback savestate slot,
+`P2_MAPPER_LOG=1` logs the decisions, `P2_NO_ENCOUNTERS=1` turns off random encounters (the replaced field encounter check at 08962BE8 then
+always reports "no encounter"), which makes mapping about ten times faster. `tools/mapview.py` renders the result as text/PNG. A full
+first floor of the school (3,400 cells incl. the classrooms, 235 interaction spots) takes about ten minutes of emulation.
+
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).

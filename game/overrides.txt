@@ -24,3 +24,4 @@
 088EB8DC  # get_object_60e4
 08864A24  # get_view_point
 0889E76C  # map_cursor_pick_edge
+08962BE8  # field random-encounter check (optionally disabled)

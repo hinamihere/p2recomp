@@ -153,6 +153,13 @@ u32 guest_address(const void *host) {
     return 0;
 }
 
+bool call_original(Runtime &r, AllegrexContext &c, u32 address) {
+    for (const auto &entry : registry())
+        if (entry.addr == address) return run_to_sentinel(r, c, entry.original);
+    LOG_E("native", "call_original: %08x is not a replaced function", address);
+    return false;
+}
+
 bool guest_call(Runtime &r, AllegrexContext &c, u32 address) {
     if (!r.has_function(address)) {
         LOG_E("native", "guest_call: no code at %08x", address);
