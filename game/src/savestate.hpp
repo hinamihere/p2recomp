@@ -107,6 +107,8 @@ void savestate_request_load_required(int slot);
 void savestate_configure(const std::filesystem::path &dir);
 // Saves `slot` once the vblank counter reaches `vblank` (for scripted tests).
 void savestate_schedule_save(int slot, u64 vblank);
+// Stop the run once the scheduled save has been written (scripted tests).
+void savestate_exit_after_save(bool on);
 void savestate_schedule_load(int slot, u64 vblank);
 // Called from the outer dispatch hook; returns true if a state was loaded.
 bool savestate_service();

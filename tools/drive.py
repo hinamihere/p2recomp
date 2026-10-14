@@ -49,7 +49,8 @@ def main():
 
     frames = os.path.join(ROOT, "build", "frames")
     shutil.rmtree(frames, ignore_errors=True)
-    cmd = [EXE, "--headless", "-q", "--exit-after", str(end), "--save-state-at", f"{end - 2}:{dst}",
+    # The save may be postponed a little (interrupt in flight): run on until it is written.
+    cmd = [EXE, "--headless", "-q", "--exit-after", str(end + 240), "--exit-after-save", "--save-state-at", f"{end - 2}:{dst}",
            "--turbo-until", str(max(end - 24, start)), "--dump-frames", "1"]
     if src != "boot":
         cmd += ["--load-state", src]

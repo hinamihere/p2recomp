@@ -88,11 +88,14 @@ The ISO is found automatically in the working directory or one level below (`--i
 | `--turbo-until <vblank>` | fast-forward until that vblank |
 | `--load-state N` | start from savestate slot N |
 | `--load-state-at <vblank>[:slot]` | load a state at that vblank, like pressing F8 (tests) |
+| `--exit-after-save` | stop as soon as the scheduled `--save-state-at` state has been written |
 | `--save-state-at <vblank>[:slot]` | write a savestate at that vblank (scripted tests, `tools/drive.py`) |
 
 Scripted play from savestates: `tools/drive.py` (load a slot, play input, save another slot,
 last frame and a contact sheet in `build/drive/`), `tools/explore.py` (random walk until the
-location banner changes) and `tools/talkhunt.py` (random walk until a conversation opens).
+location banner changes) `tools/talkhunt.py` (random walk until a conversation opens), `tools/menuhunt.py` /
+`tools/is_mall.py` (find/detect destination menus), `tools/labelmap.py` / `tools/labelhunt.py` /
+`tools/labelpos.py` (find place labels on town maps), `tools/ramdiff.py` (RAM diffs between states).
 
 Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and dump textures),
 `P2_THREAD_DUMP=<vblank>`, `PSPRECOMP_HLE_HISTOGRAM=1`, `P2_PROFILE=1` (sampling profiler, then

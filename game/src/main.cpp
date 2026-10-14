@@ -59,6 +59,7 @@ struct Options {
     int save_state_slot{1};
     int load_state{-1};
     u64 load_state_at{};
+    bool exit_after_save{};
     int load_state_at_slot{1};
     u32 dump_every{};
     std::string input_script;
@@ -84,6 +85,7 @@ Options parse_options(int argc, char **argv) {
             o.save_state_at = std::strtoull(v.c_str(), &end, 0);
             if (end != nullptr && *end == ':') o.save_state_slot = std::atoi(end + 1);
         }
+        else if (a == "--exit-after-save") o.exit_after_save = true;
         else if (a == "--load-state") o.load_state = std::atoi(next().c_str());
         else if (a == "--load-state-at") {
             // <vblank>[:slot], like pressing F8 at that vblank (tests)
@@ -180,6 +182,7 @@ int run(int argc, char **argv) {
     g_kernel.init(module->gp, module_end);
     g_kernel.set_turbo_until(opt.turbo_until);
     if (opt.save_state_at != 0u) savestate_schedule_save(opt.save_state_slot, opt.save_state_at);
+    savestate_exit_after_save(opt.exit_after_save);
     if (opt.load_state >= 0) savestate_request_load_required(opt.load_state);
     if (opt.load_state_at != 0u) savestate_schedule_load(opt.load_state_at_slot, opt.load_state_at);
     g_kernel.boot_main_thread(elf.runtime_entry(kLoadBase), 0x20u, 0x4000u, 0x80000000u,

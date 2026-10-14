@@ -25,6 +25,8 @@ u64 g_blocked_since = 0;
 bool g_at_hle_return = false;
 u32 g_load_version = 0;
 bool g_load_required = false;
+bool g_exit_after_save = false;
+bool g_scheduled_pending = false;
 
 std::filesystem::path slot_path(int slot) { return g_dir / ("slot" + std::to_string(slot) + ".p2s"); }
 
@@ -132,6 +134,8 @@ void savestate_request_load_required(int slot) {
     g_pending_load = slot;
     g_load_required = true;
 }
+void savestate_exit_after_save(bool on) { g_exit_after_save = on; }
+
 void savestate_schedule_save(int slot, u64 vblank) {
     g_scheduled_slot = slot;
     g_scheduled_vblank = vblank;
@@ -158,6 +162,7 @@ bool savestate_service() {
     if (g_scheduled_slot >= 0 && g_kernel.vblank_count() >= g_scheduled_vblank) {
         g_pending_save = g_scheduled_slot;
         g_scheduled_slot = -1;
+        g_scheduled_pending = true;
     }
     if (g_scheduled_load_slot >= 0 && g_kernel.vblank_count() >= g_scheduled_load_vblank) {
         g_pending_load = g_scheduled_load_slot;
@@ -181,7 +186,9 @@ bool savestate_service() {
     if (g_pending_save >= 0) {
         const int slot = g_pending_save;
         g_pending_save = -1;
-        do_save(slot);
+        const bool saved = do_save(slot);
+        if (g_scheduled_pending && g_exit_after_save && saved) rt().stop("exit-after reached");
+        g_scheduled_pending = false;
     }
     if (g_pending_load >= 0) {
         const int slot = g_pending_load;
