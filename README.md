@@ -142,7 +142,15 @@ Debug environment variables: `P2_GE_TRACE=<vblank>[-<vblank>]` (log draws and du
 `tools/profile.py build/release/p2.exe`), `P2_RASTER_THREADS=N` (default: cores - 2, at most 4),
 `P2_RASTER_VERIFY=1` (check banded against sequential rasterization), `P2_RASTER_STATS=1`.
 `P2_SAVEDATA_AUTO=1` (skip the slot picker: newest save / first free slot), `P2_MPEG_DUMP=<file>` (raw movie stream + per-picture checksums), `P2_FFMPEG_LOG=1`,
-`P2_EXPLORE=1` (or `<xaddr>,<zaddr>`; `P2_EXPLORE_SEED`) runs an in-game dungeon exploration bot: it reads the party leader's position, walks the four d-pad directions towards the least visited neighbouring cell, turns away from walls and taps Cross (doors, dialogue, battle commands); `tools/bannerscan.py` lists the area banners that appear during a run (seed 0 = the bot), `tools/bubblescan.py` finds the "!" interaction bubbles while walking, `tools/dungeonwalk.py` is the scripted random-walk variant.
+`P2_EXPLORE=1` (or `<xaddr>,<zaddr>`; `P2_EXPLORE_SEED`, `P2_EXPLORE_LOG=1`, `P2_EXPLORE_AVOID="x0,z0,x1,z1"`) runs an in-game
+dungeon exploration bot: it reads the party leader's position (x at 08CD4190, z at 08CD4198), walks the four d-pad directions
+towards the least visited neighbouring grid cell, turns away from walls it bumped into, stays out of the avoid rectangle and
+taps Cross (doors, dialogue). Battle and menu screens are recognised from the frame contents (red UI bar on top or red party
+panels at the bottom, with a 2 s hysteresis): there it only taps Cross, which fights with the default commands. When a party
+member is below half HP it drinks Medicine through the Triangle menu (three times at most). It does not avoid fights it cannot
+win, so long runs can get party members knocked out. `tools/bannerscan.py` lists the area banners that appear during a run
+(seed 0 = the bot), `tools/bubblescan.py` finds the "!" interaction bubbles while walking, `tools/dungeonwalk.py` is the scripted
+random-walk variant. Useful memory words: party HP/max HP/SP/max SP are u16 at 08E3CCBC + 0x54*member.
 
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates

@@ -240,14 +240,36 @@ u32 climb_buttons() {
     return kDirs[dir];
 }
 
-// P2_EXPLORE=1 (or "<xaddr>,<zaddr>" in hex): dungeon exploration bot. It reads the party leader's world
-// position (defaults: x at 08CD4190, z at 08CD4198), walks along the four d-pad directions, prefers the
+// Heuristic used by the exploration bot: battle and menu screens carry a red UI bar along the top (right of the
+// location banner) or red party panels along the bottom; the field view has neither.
+bool battle_like_screen() {
+    auto red_fraction = [](int x0, int x1, int y0, int y1) {
+        int red = 0, total = 0;
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x) {
+                const u32 p = g_frame[static_cast<std::size_t>(y) * 480 + x];
+                const u32 r = p & 0xFF, g = (p >> 8) & 0xFF, b = (p >> 16) & 0xFF;
+                red += (r > 110 && g < 70 && b < 70) ? 1 : 0;
+                ++total;
+            }
+        return static_cast<float>(red) / static_cast<float>(total);
+    };
+    return red_fraction(210, 470, 3, 21) > 0.35f || red_fraction(30, 300, 212, 266) > 0.12f;
+}
+
+// P2_EXPLORE=1 (or "<xaddr>,<zaddr>" in hex): dungeon exploration bot. It reads the position of the party
+// leader (defaults: x at 08CD4190, z at 08CD4198), walks along the four d-pad directions, prefers the
 // neighbouring grid cell it has visited least, turns away from walls it bumped into, and taps Cross every
-// second (doors, dialogue, battle commands). While the position does not change for a second (battle,
-// dialogue, loading) it only taps Cross. P2_EXPLORE_SEED selects the random tie-breaking.
+// second (doors, dialogue). Battles and menu screens are recognised from the screen contents: there it only taps
+// Cross (default commands, victory screens) and never pushes a direction. When a party member is below
+// half HP outside battle it drinks Medicine through the Triangle menu (at most three times). While the
+// position does not change for a second (dialogue, loading) it taps Cross quickly and probes directions.
+// P2_EXPLORE_SEED selects the random tie-breaking; P2_EXPLORE_LOG=1 logs the interaction events;
+// P2_EXPLORE_AVOID="x0,z0,x1,z1" keeps it out of a world rectangle (e.g. the exit door of the school).
 u32 explore_buttons() {
     static const char *env = std::getenv("P2_EXPLORE");
     if (env == nullptr) return 0u;
+    constexpr u32 kEventFlag = 0x08CA269Cu, kParty = 0x08E3CCBCu;
     struct Explorer {
         u32 xaddr{0x08CD4190u}, zaddr{0x08CD4198u};
         std::map<std::pair<int, int>, int> visits;
@@ -255,28 +277,102 @@ u32 explore_buttons() {
         std::pair<int, int> cell{INT_MIN, 0};
         int heading{3}; // 0 up (z-), 1 down (z+), 2 left (x-), 3 right (x+)
         float last_x{}, last_z{};
-        u64 last_check{}, last_move{}, last_log{};
+        float avoid_x0{1e9f}, avoid_z0{1e9f}, avoid_x1{-1e9f}, avoid_z1{-1e9f}; // P2_EXPLORE_AVOID: never enter this world rectangle
+        u64 last_check{}, last_move{}, last_log{}, battle_since{}, last_heal{}, last_event_press{};
+        bool was_battle{}, event_seen{};
+        int heals{};
+        std::vector<std::pair<u64, u32>> macro; // (start vblank, buttons) taps of a running macro
+        u64 macro_end{};
         std::mt19937 rng;
     };
     static Explorer e = [] {
         Explorer r;
         unsigned xa = 0, za = 0;
         if (std::sscanf(env, "%x,%x", &xa, &za) == 2) { r.xaddr = xa; r.zaddr = za; }
+        if (const char *avoid = std::getenv("P2_EXPLORE_AVOID"))
+            std::sscanf(avoid, "%f,%f,%f,%f", &r.avoid_x0, &r.avoid_z0, &r.avoid_x1, &r.avoid_z1);
         const char *seed = std::getenv("P2_EXPLORE_SEED");
         r.rng.seed(seed ? static_cast<unsigned>(std::strtoul(seed, nullptr, 10)) : 1u);
         return r;
     }();
+    static const bool verbose = std::getenv("P2_EXPLORE_LOG") != nullptr;
     static constexpr u32 kHeadingButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
     static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
+    static constexpr u32 kCross = 0x4000u, kCircle = 0x2000u, kTriangle = 0x1000u, kDown = 0x40u;
     const u64 now = g_kernel.vblank_count();
     const float x = guest_float(e.xaddr), z = guest_float(e.zaddr);
+    static u64 battle_hold_until = 0;
+    if (battle_like_screen()) battle_hold_until = now + 150u; // dimmed dialogs between battle screens must not end it
+    const bool battle = now < battle_hold_until;
     const std::pair<int, int> cell{static_cast<int>(std::floor(x / 200.f)), static_cast<int>(std::floor(z / 200.f))};
+
+    if (battle != e.was_battle) {
+        e.was_battle = battle;
+        e.battle_since = now;
+        e.last_move = now; // walking resumes with a fresh stuck timer after the fight
+        e.last_x = x; e.last_z = z; e.last_check = now;
+        if (verbose) LOG_I("explore", "%s at vblank %llu", battle ? "battle started" : "battle over", static_cast<unsigned long long>(now));
+    }
+
+    // Macro in progress (healing): it owns the buttons until it is over.
+    if (!e.macro.empty()) {
+        if (now >= e.macro_end) {
+            e.macro.clear();
+            e.last_move = now; e.last_check = now; e.last_x = x; e.last_z = z;
+        } else {
+            u32 b = 0u;
+            for (const auto &[start, buttons] : e.macro) if (now >= start && now < start + 3u) b |= buttons;
+            return b;
+        }
+    }
+    if (battle) {
+        // Cross confirms default commands. A battle sequence needs many Crosses in a row, so Circle (back) is only
+        // used in bursts once a battle has lasted very long, to leave status pages and similar dead ends.
+        u32 b = (now % 18u < 3u) ? kCross : 0u;
+        const u64 age = now - e.battle_since;
+        if (age > 4000u && age % 2000u < 120u && now % 30u < 3u) b = kCircle; // stuck for a long time: back out
+        return b;
+    }
+
+    // Heal: lowest HP fraction among the three party members.
+    {
+        int worst = -1;
+        float worst_fraction = 0.5f;
+        for (int i = 0; i < 3; ++i) {
+            const u32 base = kParty + 0x54u * static_cast<u32>(i);
+            const float hp = static_cast<float>(mem().load16(base)), max_hp = static_cast<float>(mem().load16(base + 2));
+            if (max_hp > 0.f && hp / max_hp < worst_fraction) { worst_fraction = hp / max_hp; worst = i; }
+        }
+        if (worst >= 0 && e.heals < 3 && now - e.last_heal > 1500u && now - e.battle_since > 200u) {
+            e.heals++;
+            e.last_heal = now;
+            LOG_I("explore", "party member %d is hurt: using Medicine (%d/3)", worst, e.heals);
+            u64 t = now + 5u;
+            auto tap = [&](u32 buttons, u64 gap) { e.macro.emplace_back(t, buttons); t += gap; };
+            tap(kTriangle, 60); tap(kDown, 40); tap(kCross, 60); // Command menu, Items, open the item categories
+            tap(kCross, 60); tap(kCross, 60);                  // Expendable items, Medicine
+            for (int i = 0; i < worst; ++i) tap(kDown, 40);    // choose who to heal
+            tap(kCross, 80);                                   // apply
+            for (int i = 0; i < 5; ++i) tap(kCircle, 50);      // back out of the menus
+            e.macro_end = t + 10u;
+            return 0u;
+        }
+    }
+
+    const bool event = mem().load32(kEventFlag) != 0u;
+    if (event != e.event_seen) {
+        e.event_seen = event;
+        if (event && verbose)
+            LOG_I("explore", "interaction available at (%.0f, %.0f) cell (%d,%d) heading %d", x, z, cell.first, cell.second, e.heading);
+    }
 
     auto choose = [&] {
         float best = -1e9f;
         int pick = e.heading;
         for (int d = 0; d < 4; ++d) {
             if (e.blocked.count({cell.first, cell.second, d})) continue;
+            const float nx = (static_cast<float>(cell.first + kDx[d]) + 0.5f) * 200.f, nz = (static_cast<float>(cell.second + kDz[d]) + 0.5f) * 200.f;
+            if (nx >= e.avoid_x0 && nx <= e.avoid_x1 && nz >= e.avoid_z0 && nz <= e.avoid_z1) continue; // forbidden area
             const auto it = e.visits.find({cell.first + kDx[d], cell.second + kDz[d]});
             const float visited = it == e.visits.end() ? 0.f : static_cast<float>(it->second);
             const float score = -visited + (d == e.heading ? 0.6f : 0.f) + static_cast<float>(e.rng() % 100u) / 250.f;
@@ -302,14 +398,18 @@ u32 explore_buttons() {
     }
     if (now - e.last_log >= 1200u) {
         e.last_log = now;
-        LOG_I("explore", "vblank %llu at (%.0f, %.0f) cell (%d,%d): %zu cells visited, %zu walls", static_cast<unsigned long long>(now), x, z,
-              cell.first, cell.second, e.visits.size(), e.blocked.size());
+        LOG_I("explore", "vblank %llu at (%.0f, %.0f) cell (%d,%d): %zu cells visited, %zu walls, battle word %u, event word %u",
+              static_cast<unsigned long long>(now), x, z, cell.first, cell.second, e.visits.size(), e.blocked.size(),
+              battle ? 1u : 0u, mem().load32(kEventFlag));
     }
     u32 buttons = 0u;
-    const bool idle = now - e.last_move >= 60u; // battle, dialogue or loading: confirm quickly
-    if (now % (idle ? 18u : 60u) < 3u) buttons |= 0x4000u; // Cross
+    const bool idle = now - e.last_move >= 60u; // dialogue or loading: confirm quickly
+    if (now % (idle ? 18u : 60u) < 3u) buttons |= kCross;
+    const bool in_avoid = x >= e.avoid_x0 - 300.f && x <= e.avoid_x1 + 300.f && z >= e.avoid_z0 - 300.f && z <= e.avoid_z1 + 300.f;
+    if (in_avoid) buttons &= ~kCross; // never trigger an event near the forbidden area (the school exit)
+    if (event && !in_avoid && now - e.last_event_press > 90u) { buttons |= kCross; e.last_event_press = now; }
     // Long idle: also back out of whatever menu or status screen the confirming wandered into.
-    if (now - e.last_move > 300u && now % 240u >= 120u && now % 240u < 124u) buttons |= 0x2000u; // Circle
+    if (now - e.last_move > 300u && now % 240u >= 120u && now % 240u < 124u) buttons |= kCircle;
     // While idle, push a direction for a few frames now and then so it notices when it is free to walk again.
     if (!idle || now % 90u < 16u) buttons |= kHeadingButtons[e.heading];
     if (idle && now % 90u == 0u) e.heading = static_cast<int>(e.rng() % 4u);
