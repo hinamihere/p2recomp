@@ -48,7 +48,11 @@ u64 g_frame_counter{};
 
 void dump_bmp(const std::vector<u32> &pixels, u64 index) {
     char name[96];
-    std::snprintf(name, sizeof(name), "build/frames/frame_%06llu.bmp", static_cast<unsigned long long>(index));
+    // P2_DUMP_VBLANK=1: name frames by the vblank they were presented at (fast-forward runs skip
+    // frames, so the index alone does not give the time).
+    static const bool by_vblank = std::getenv("P2_DUMP_VBLANK") != nullptr;
+    std::snprintf(name, sizeof(name), "build/frames/frame_%06llu.bmp",
+                  static_cast<unsigned long long>(by_vblank ? g_kernel.vblank_count() : index));
     std::FILE *f = std::fopen(name, "wb");
     if (f == nullptr) return;
     const u32 w = 480, h = 272, image = w * h * 4, file = 54 + image;
