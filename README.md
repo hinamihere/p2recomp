@@ -17,8 +17,9 @@ Playable from boot into the story:
 - saves stored on the host (`memstick/PSP/SAVEDATA/...`)
 - runs at the game's native 30 fps; fast-forward (Tab) and savestates (F5/F8)
 
-Not verified yet: battles (the first ones come after the opening story chain),
-saving at save points. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
+Verified by scripted play through the whole opening chain at Seven Sisters High, the Persona
+awakening (movie, Philemon scene) and the first scripted battle against the Joker (fusion spell,
+battle effects). Not verified yet: random-encounter battles in a dungeon, saving at save points. Known gaps: Bezier/spline surfaces, utility dialogs other than savedata are
 auto-confirmed, the renderer is a software rasterizer (primitives are batched and rasterized in
 horizontal bands on several threads).
 
