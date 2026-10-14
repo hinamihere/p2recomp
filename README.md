@@ -48,9 +48,11 @@ Functions can be rewritten by hand and swapped in one at a time while the rest s
    cross unit, indirect) takes the same path. The original body stays reachable as `recomp_orig_<ADDR>`.
 4. Verify: `P2_NATIVE=verify` runs original and replacement on identical state (registers and all of RAM are
    compared, mismatches are logged and the original's result is kept); `P2_NATIVE=off` runs the original only;
-   `P2_NATIVE_VERIFY_LIMIT` / `P2_NATIVE_STRICT` tune it. `tools/callgraph.py` lists leaf functions and callers.
+   `P2_NATIVE_VERIFY_LIMIT` / `P2_NATIVE_STRICT` tune it. `P2_NATIVE_FUZZ=<n>` runs every replacement n times on random
+   arguments and RAM against the original before boot (inputs are shaped per function in `native_fuzz_setup`);
+   it caught a wrong flag-array address that gameplay never exercised. `tools/callgraph.py` lists leaf functions and callers.
 
-Replaced so far: `pad_held`, `pad_pressed` (controller helpers) and a map-flag getter. `tools/mapgraph.py` dumps
+Replaced so far: the controller helper cluster at 0x08807918-0x08807B08 (held, pressed, mapped-button and d-pad queries) and a map-flag getter. `tools/mapgraph.py` dumps
 the town-map graph (nodes, edges, angles) from a savestate, the data the map-cursor code works on.
 
 ## Layout

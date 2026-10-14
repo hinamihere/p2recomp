@@ -192,6 +192,10 @@ int run(int argc, char **argv) {
 
     watchpoint_init();
     native_init();
+    if (const char *fuzz = std::getenv("P2_NATIVE_FUZZ")) {
+        native_fuzz(std::strtoull(fuzz, nullptr, 10));
+        return 0;
+    }
     const bool profile = std::getenv("P2_PROFILE") != nullptr;
     if (profile) profiler_start();
     int status = 0;

@@ -3,3 +3,7 @@
 08807918  # pad_held
 0880792C  # pad_pressed
 08807C58  # get_map_flag
+08807968  # pad_mapped_b
+08807AC4  # pad_mapped_b (copy)
+088079AC  # pad_dir_a
+08807B08  # pad_dir_b

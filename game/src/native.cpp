@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <random>
 #include <vector>
 
 namespace psprecomp {
@@ -22,6 +23,12 @@ struct Stats {
     u64 mismatches{};
     bool announced{};
 };
+struct Registered { u32 addr; NativeFn native; NativeFn original; };
+std::vector<Registered> &registry() {
+    static std::vector<Registered> list;
+    return list;
+}
+
 std::map<u32, Stats> g_stats;
 u64 g_limit = 300;
 bool g_strict = false;
@@ -82,6 +89,34 @@ bool compare_ram(u32 addr, const u8 *want, const u8 *got, size_t size) {
     return false;
 }
 
+// Runs original and native on identical state and compares them. Leaves `c` and RAM in the original's
+// state on a mismatch, otherwise in the native's (identical) state.
+bool verify_call(Runtime &r, AllegrexContext &c, u32 addr, void (*native)(Runtime &, AllegrexContext &),
+                 void (*original)(Runtime &, AllegrexContext &)) {
+    const size_t size = r.memory().size();
+    u8 *ram = r.memory().raw_pointer(kRamBase, size);
+    g_before.assign(ram, ram + size);
+    const AllegrexContext start = c;
+
+    const bool completed = run_to_sentinel(r, c, original);
+    const AllegrexContext original_result = c;
+    g_after.assign(ram, ram + size);
+    if (!completed) return false;
+
+    std::memcpy(ram, g_before.data(), size);
+    c = start;
+    native(r, c);
+
+    bool ok = compare_state(addr, original_result, c);
+    ok &= compare_ram(addr, g_after.data(), ram, size);
+    if (!ok) {
+        std::memcpy(ram, g_after.data(), size); // keep the game on the original's behaviour
+        c = original_result;
+        c.gpr[31] = start.gpr[31];
+    }
+    return ok;
+}
+
 } // namespace
 
 bool guest_call(Runtime &r, AllegrexContext &c, u32 address) {
@@ -114,6 +149,11 @@ void native_report() {
 
 namespace psprecomp {
 
+void p2_native_register(std::uint32_t addr, void (*native)(Runtime &, AllegrexContext &),
+                        void (*original)(Runtime &, AllegrexContext &)) {
+    p2::registry().push_back({addr, native, original});
+}
+
 // Slow path of every replaced entry (mode != 0): run the original, or compare native against it.
 void p2_native_slow(Runtime &r, AllegrexContext &c, std::uint32_t addr, void (*native)(Runtime &, AllegrexContext &),
                     void (*original)(Runtime &, AllegrexContext &)) {
@@ -132,30 +172,34 @@ void p2_native_slow(Runtime &r, AllegrexContext &c, std::uint32_t addr, void (*n
         native(r, c);
         return;
     }
-
-    const size_t size = r.memory().size();
-    u8 *ram = r.memory().raw_pointer(kRamBase, size);
-    g_before.assign(ram, ram + size);
-    const AllegrexContext start = c;
-
-    const bool completed = run_to_sentinel(r, c, original);
-    const AllegrexContext original_result = c;
-    g_after.assign(ram, ram + size);
-    if (!completed) return;
-
-    std::memcpy(ram, g_before.data(), size);
-    c = start;
-    native(r, c);
-
-    bool ok = compare_state(addr, original_result, c);
-    ok &= compare_ram(addr, g_after.data(), ram, size);
     ++stats.verified;
-    if (!ok) {
-        ++stats.mismatches;
-        std::memcpy(ram, g_after.data(), size); // keep the game on the original's behaviour
-        c = original_result;
-        c.gpr[31] = start.gpr[31];
-    }
+    if (!verify_call(r, c, addr, native, original)) ++stats.mismatches;
 }
 
 } // namespace psprecomp
+
+namespace p2 {
+
+void native_fuzz(u64 iterations) {
+    std::mt19937 rng(0x5EEDu);
+    Runtime &r = rt();
+    int failures = 0;
+    for (const auto &entry : registry()) {
+        u64 bad = 0;
+        for (u64 i = 0; i < iterations; ++i) {
+            AllegrexContext c{};
+            c.gpr[29] = 0x09F00000u; // scratch stack inside RAM
+            c.gpr[31] = 0x08804000u;
+            for (int a = 4; a < 12; ++a) c.gpr[a] = rng();
+            native_fuzz_setup(entry.addr, rng, c);
+            // The comparison functions return to the sentinel, so $ra only needs to survive.
+            if (!verify_call(r, c, entry.addr, entry.native, entry.original)) ++bad;
+        }
+        LOG_I("native", "fuzz %08x: %llu iterations, %llu mismatches", entry.addr,
+              static_cast<unsigned long long>(iterations), static_cast<unsigned long long>(bad));
+        failures += bad != 0u;
+    }
+    LOG_I("native", "fuzz done: %zu functions, %d with mismatches", registry().size(), failures);
+}
+
+} // namespace p2

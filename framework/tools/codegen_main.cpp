@@ -963,6 +963,7 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
         if (g_overrides.contains(label)) overridden.push_back(label);
     if (!overridden.empty()) {
         body << "extern std::uint32_t g_p2_native_mode;\n"
+             << "void p2_native_register(std::uint32_t, void (*)(Runtime &, AllegrexContext &), void (*)(Runtime &, AllegrexContext &));\n"
              << "void p2_native_slow(Runtime &, AllegrexContext &, std::uint32_t, void (*)(Runtime &, AllegrexContext &), void (*)(Runtime &, AllegrexContext &));\n";
         for (const auto label : overridden) {
             const std::string hex = psprecomp::hex32(label).substr(2);
@@ -1644,6 +1645,11 @@ int generate_auto(const std::filesystem::path &elf_path,
             out << "    runtime.register_function(" << psprecomp::hex32(label) << "u, &"
                 << generated_unit.name << ", \"" << generated_unit.name << "\");\n";
             ++registered_entries;
+            if (g_overrides.contains(label)) {
+                const std::string hex = psprecomp::hex32(label).substr(2);
+                out << "    p2_native_register(" << psprecomp::hex32(label) << "u, &p2_native_" << hex
+                    << ", &recomp_orig_" << hex << ");\n";
+            }
         }
         out << "}\n} // namespace psprecomp\n";
         rewritten_units += write_text_if_changed(path, out.str()) ? 1u : 0u;
