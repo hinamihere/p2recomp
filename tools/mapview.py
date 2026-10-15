@@ -4,6 +4,7 @@ usage: mapview.py <map.txt> [out.png]
 Cells are 40 world units. Each cell is drawn 4x4 pixels in the text view: '.' visited, passable edges open,
 '#' blocked edges, '?' unknown edges, 'E' interaction event, 'X' area exit.
 """
+import os
 import sys
 
 
@@ -24,8 +25,49 @@ def load(path):
     return cells, visited, events, exits
 
 
+FLOOR_OFF = 100000
+
+
+def floor_of(cx):
+    return (cx + FLOOR_OFF // 2) // FLOOR_OFF
+
+
+def split_floors(cells, visited, events, exits):
+    """Maps written by a floor-aware mapper tag cells with 100000 * floor in x; returns {floor: (cells, visited, events, exits)}."""
+    out = {}
+    def put(kind, key, value):
+        fl = floor_of(key[0])
+        bucket = out.setdefault(fl, ({}, set(), set(), set()))
+        return fl, bucket
+    for (x, z), e in cells.items():
+        fl = floor_of(x)
+        out.setdefault(fl, ({}, set(), set(), set()))[0][(x - fl * FLOOR_OFF, z)] = e
+    for (x, z) in visited:
+        fl = floor_of(x)
+        out.setdefault(fl, ({}, set(), set(), set()))[1].add((x - fl * FLOOR_OFF, z))
+    for (x, z, d) in events:
+        fl = floor_of(x)
+        out.setdefault(fl, ({}, set(), set(), set()))[2].add((x - fl * FLOOR_OFF, z, d))
+    for (x, z, d) in exits:
+        fl = floor_of(x)
+        out.setdefault(fl, ({}, set(), set(), set()))[3].add((x - fl * FLOOR_OFF, z, d))
+    return out
+
+
 def main():
     cells, visited, events, exits = load(sys.argv[1])
+    floors = split_floors(cells, visited, events, exits)
+    if len(floors) > 1 or (floors and list(floors)[0] != 0):
+        for fl in sorted(floors):
+            print(f"floor index {fl}: {len(floors[fl][0])} cells")
+            if len(sys.argv) > 2:
+                base, ext = os.path.splitext(sys.argv[2])
+                render(*floors[fl], f"{base}_f{fl}{ext}")
+        return
+    render(cells, visited, events, exits, sys.argv[2] if len(sys.argv) > 2 else None)
+
+
+def render(cells, visited, events, exits, png):
     xs = [c[0] for c in cells] or [0]
     zs = [c[1] for c in cells] or [0]
     x0, x1, z0, z1 = min(xs) - 1, max(xs) + 1, min(zs) - 1, max(zs) + 1
@@ -47,7 +89,7 @@ def main():
                 mid += sym(left) + ("o" if (x, z) in visited else "+")
             print(top)
             print(mid)
-    if len(sys.argv) > 2:
+    if png:
         from PIL import Image
         S = 6
         img = Image.new("RGB", ((x1 - x0 + 1) * S, (z1 - z0 + 1) * S), (20, 20, 30))
@@ -69,7 +111,7 @@ def main():
             px[(x - x0) * S + 2, (z - z0) * S + 2] = (60, 255, 60)
         for (x, z, d) in exits:
             px[(x - x0) * S + 3, (z - z0) * S + 3] = (255, 220, 0)
-        img.save(sys.argv[2])
+        img.save(png)
 
 
 if __name__ == "__main__":

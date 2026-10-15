@@ -620,6 +620,11 @@ u32 mapper_buttons() {
         u64 cal_t{};
         float cal_x{}, cal_z{};
         std::array<std::pair<float, float>, 4> cal_disp{};
+        std::map<std::pair<Cell, int>, Cell> hops; // floor changes: stepping from a cell in a direction lands on a cell of another floor
+        std::array<bool, 4> cal_bad{};        // directions that left the area during the calibration (a door right next to the start)
+        std::vector<float> cal_deltas;        // per-frame movements of the current step
+        float cal_prev_x{}, cal_prev_z{};
+        bool cal_prev_valid{}, pre_ckpt{};
     };
     static Mapper m = [] {
         Mapper r;
@@ -642,14 +647,24 @@ u32 mapper_buttons() {
     const float raw_x = guest_float(m.xaddr), raw_z = guest_float(m.zaddr);
     const float x = raw_x * axes[2] + raw_z * axes[3];      // along stick RIGHT
     const float z = -(raw_x * axes[0] + raw_z * axes[1]);   // along stick DOWN
-    const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
-    auto centre = [&](Cell c) { return std::pair<float, float>{(static_cast<float>(c.first) + 0.5f) * kCell, (static_cast<float>(c.second) + 0.5f) * kCell}; };
+    // Floors: the position keeps running through the stairs, so cells are tagged with the floor (a byte at 08CE819D: 0 = 1F, 2 = 3F, ...)
+    // by adding 100000 per floor to the cell's x; stepping onto the stairs changes the floor ("hops").
+    constexpr int kFloorOff = 100000;
+    const int fl = static_cast<int>(mem().load8(0x08CE819Du));
+    auto floor_of = [&](int cx) { return static_cast<int>(std::floor((static_cast<double>(cx) + kFloorOff / 2) / kFloorOff)); };
+    auto cell_x = [&](Cell c) { return c.first - floor_of(c.first) * kFloorOff; };
+    const Cell here{static_cast<int>(std::floor(x / kCell)) + fl * kFloorOff, static_cast<int>(std::floor(z / kCell))};
+    auto centre = [&](Cell c) { return std::pair<float, float>{(static_cast<float>(cell_x(c)) + 0.5f) * kCell, (static_cast<float>(c.second) + 0.5f) * kCell}; };
     auto edge = [&](Cell c) -> std::array<int, 4> & {
         auto it = m.edges.find(c);
         if (it == m.edges.end()) it = m.edges.emplace(c, std::array<int, 4>{-1, -1, -1, -1}).first;
         return it->second;
     };
-    auto neighbour = [&](Cell c, int d) { return Cell{c.first + kDx[d], c.second + kDz[d]}; };
+    auto neighbour = [&](Cell c, int d) {
+        const auto it = m.hops.find({c, d});
+        if (it != m.hops.end()) return it->second;
+        return Cell{c.first + kDx[d], c.second + kDz[d]};
+    };
     auto opposite = [](int d) { return d ^ 1; }; // 0<->1 (up/down), 2<->3 (left/right)
     auto save_map = [&] {
         std::FILE *f = std::fopen(out_path, "w");
@@ -658,6 +673,8 @@ u32 mapper_buttons() {
                      static_cast<double>(m.axes[2]), static_cast<double>(m.axes[3]), static_cast<double>(m.cell));
         for (const auto &[c, e] : m.edges) std::fprintf(f, "C %d %d %d %d %d %d\n", c.first, c.second, e[0], e[1], e[2], e[3]);
         for (const auto &c : m.visited) std::fprintf(f, "V %d %d\n", c.first, c.second);
+        for (const auto &[key, to] : m.hops)
+            std::fprintf(f, "HOP %d %d %d %d %d\n", key.first.first, key.first.second, key.second, to.first, to.second);
         for (const auto &[cx, cz, d] : m.events) std::fprintf(f, "EV %d %d %d\n", cx, cz, d);
         for (const auto &[cx, cz, d] : m.exits) std::fprintf(f, "EXIT %d %d %d\n", cx, cz, d);
         std::fclose(f);
@@ -669,9 +686,16 @@ u32 mapper_buttons() {
         m.mode = Mode::Plan;
         m.battle_hold = 0;
         m.last_check = 0;
+        m.cal_started = false;
+        m.cal_prev_valid = false;
     }
     m.last_now = now;
 
+    // Before the calibration: a checkpoint to come back to if a calibration step walks out of the area.
+    if (!m.pre_ckpt && !m.calibrated && now > 20u) {
+        m.pre_ckpt = true;
+        savestate_request_save(m.checkpoint_slot);
+    }
     // First call: take the checkpoint used for rollbacks.
     if (!m.checkpoint_saved && m.calibrated && now > 20u) { // (after the calibration: the checkpoint is where the map starts)
         m.checkpoint_saved = true;
@@ -705,46 +729,85 @@ u32 mapper_buttons() {
         return battle_taps(now);
     }
 
-    // Calibration: hold each stick direction for 14 vblanks and measure how the position moves.
+    // Calibration: hold each stick direction for 8 vblanks and measure how the position moves. A step whose movement shows a
+    // teleport (a door right next to the start) is marked bad and the starting state is reloaded; the axes are then derived from
+    // the directions that did not leave the area.
     if (!m.calibrated) {
+        static const bool cal_log = std::getenv("P2_MAPPER_LOG") != nullptr;
+        if (cal_log && now % 40u == 0u) LOG_I("mapper", "calibrating: step %d, t %lld, pos (%.1f,%.1f), battle_hold %lld ago", m.cal_step, static_cast<long long>(now - m.cal_t), static_cast<double>(raw_x), static_cast<double>(raw_z), static_cast<long long>(now) - static_cast<long long>(m.battle_hold));
         if (now - m.battle_hold < 400u && m.battle_hold != 0u) m.cal_started = false;
-        if (!m.cal_started) { m.cal_started = true; m.cal_t = now; m.cal_x = raw_x; m.cal_z = raw_z; }
+        if (!m.cal_started) { m.cal_started = true; m.cal_t = now; m.cal_x = raw_x; m.cal_z = raw_z; m.cal_deltas.clear(); m.cal_prev_valid = false; }
+        if (m.cal_prev_valid) {
+            const float dmag = std::fabs(raw_x - m.cal_prev_x) + std::fabs(raw_z - m.cal_prev_z);
+            if (dmag > 0.f) {
+                if (m.cal_deltas.size() >= 3) {
+                    std::vector<float> sorted = m.cal_deltas;
+                    std::sort(sorted.begin(), sorted.end());
+                    if (dmag > 30.f * sorted[sorted.size() / 2] && m.pre_ckpt) {
+                        LOG_I("mapper", "calibration step %d left the area (movement %.1f against %.2f): direction unusable, restarting from the start state", m.cal_step, static_cast<double>(dmag), static_cast<double>(sorted[sorted.size() / 2]));
+                        m.cal_bad[static_cast<std::size_t>(m.cal_step)] = true;
+                        ++m.cal_step;
+                        m.cal_started = false;
+                        m.cal_prev_valid = false;
+                        if (m.cal_step < 4) { savestate_request_load(m.checkpoint_slot); return 0u; }
+                    }
+                }
+                if (m.cal_deltas.size() < 64) m.cal_deltas.push_back(dmag);
+            }
+        }
+        m.cal_prev_x = raw_x; m.cal_prev_z = raw_z; m.cal_prev_valid = true;
         const u64 t = now - m.cal_t;
-        if (t >= 50u) {
+        const bool all_done = m.cal_step >= 4;
+        if (!all_done && t >= 34u) {
             m.cal_disp[static_cast<std::size_t>(m.cal_step)] = {raw_x - m.cal_x, raw_z - m.cal_z};
             ++m.cal_step;
             m.cal_started = false;
-            if (m.cal_step >= 4) {
-                const auto &d = m.cal_disp;
-                const float ux = d[0].first - d[1].first, uz = d[0].second - d[1].second;
-                const float rx = d[3].first - d[2].first, rz = d[3].second - d[2].second;
-                const float un = std::sqrt(ux * ux + uz * uz), rn = std::sqrt(rx * rx + rz * rz);
-                float walk = 0.f;
-                for (const auto &v : d) walk += std::sqrt(v.first * v.first + v.second * v.second);
-                walk /= 4.f;
+            return 0u;
+        }
+        if (m.cal_step >= 4) {
+            const auto &d = m.cal_disp;
+            auto have = [&](int i) { return !m.cal_bad[static_cast<std::size_t>(i)]; };
+            auto sub = [&](int i, int k, float &vx, float &vz, bool &ok) {
+                ok = true;
+                if (have(i) && have(k)) { vx = d[static_cast<std::size_t>(i)].first - d[static_cast<std::size_t>(k)].first; vz = d[static_cast<std::size_t>(i)].second - d[static_cast<std::size_t>(k)].second; }
+                else if (have(i)) { vx = d[static_cast<std::size_t>(i)].first; vz = d[static_cast<std::size_t>(i)].second; }
+                else if (have(k)) { vx = -d[static_cast<std::size_t>(k)].first; vz = -d[static_cast<std::size_t>(k)].second; }
+                else ok = false;
+            };
+            float ux = 0, uz = 0, rx = 0, rz = 0;
+            bool ok_u, ok_r;
+            sub(0, 1, ux, uz, ok_u);
+            sub(3, 2, rx, rz, ok_r);
+            const float un = std::sqrt(ux * ux + uz * uz), rn = std::sqrt(rx * rx + rz * rz);
+            float walk = 0.f;
+            int valid = 0;
+            for (int i = 0; i < 4; ++i)
+                if (have(i)) { walk += std::sqrt(d[static_cast<std::size_t>(i)].first * d[static_cast<std::size_t>(i)].first + d[static_cast<std::size_t>(i)].second * d[static_cast<std::size_t>(i)].second); ++valid; }
+            if (valid > 0) walk /= static_cast<float>(valid);
+            walk *= 1.75f; // (14 frames of walking were the reference when the cell size was chosen; the steps hold 8)
+            if (ok_u && ok_r && un > 0.005f && rn > 0.005f && walk > 0.01f) {
+                m.axes = {ux / un, uz / un, rx / rn, rz / rn};
+                m.cell = walk;
+                m.calibrated = true;
+                m.edges.clear(); m.visited.clear(); m.events.clear(); m.exits.clear(); m.blocked_seen.clear();
+                m.good_valid = false; m.last_cell = {INT_MIN, 0};
+                LOG_I("mapper", "calibrated: stick UP = (%.2f, %.2f), RIGHT = (%.2f, %.2f), cell %.3f%s", static_cast<double>(m.axes[0]), static_cast<double>(m.axes[1]), static_cast<double>(m.axes[2]), static_cast<double>(m.axes[3]), static_cast<double>(m.cell),
+                      (m.cal_bad[0] || m.cal_bad[1] || m.cal_bad[2] || m.cal_bad[3]) ? " (some directions were doors)" : "");
+            } else {
                 m.cal_step = 0;
-                if (un > 0.01f && rn > 0.01f && walk > 0.01f) {
-                    m.axes = {ux / un, uz / un, rx / rn, rz / rn};
-                    m.cell = walk;
-                    m.calibrated = true;
-                    m.edges.clear(); m.visited.clear(); m.events.clear(); m.exits.clear(); m.blocked_seen.clear();
-                    m.good_valid = false; m.last_cell = {INT_MIN, 0};
-                    LOG_I("mapper", "calibrated: stick UP = (%.2f, %.2f), RIGHT = (%.2f, %.2f), cell %.3f", static_cast<double>(m.axes[0]), static_cast<double>(m.axes[1]), static_cast<double>(m.axes[2]), static_cast<double>(m.axes[3]), static_cast<double>(m.cell));
-                } else if (++m.cal_tries >= 3) {
-                    m.calibrated = true; // could not measure: keep the defaults
-                    LOG_E("mapper", "calibration failed, using the defaults");
-                }
+                m.cal_bad = {};
+                if (++m.cal_tries >= 3) { m.calibrated = true; LOG_E("mapper", "calibration failed, using the defaults"); }
             }
             return 0u;
         }
-        if (t < 14u) return kDirButtons[m.cal_step];
+        if (t < 8u) return kDirButtons[m.cal_step];
         return 0u;
     }
 
     // Large jump of the position since the last settled field frame: another area (or a door transition). Record the exit
     // and start over. (Loading screens in between hide the jump from frame-to-frame checks.)
     const bool settled = now >= m.battle_hold + 360u;
-    if (settled && m.good_valid && (std::fabs(x - m.good_x) > 1500.f * kUnit || std::fabs(z - m.good_z) > 1500.f * kUnit)) {
+    if (settled && m.good_valid && (std::fabs(x - m.good_x) > 12.f * kCell || std::fabs(z - m.good_z) > 12.f * kCell)) {
         // The cell the party was in before the jump (last_cell, which is still the old area's cell) is the exit.
         const bool probing = m.mode == Mode::Probe && m.last_cell == m.probe_cell;
         const int dir = probing ? m.probe_dir : 4;
@@ -758,15 +821,28 @@ u32 mapper_buttons() {
         return 0u;
     }
     if (settled && !m.good_valid && (std::fabs(x) > 1.f || std::fabs(z) > 1.f)) { m.good_x = x; m.good_z = z; m.good_valid = true; }
-    if (settled && m.good_valid && std::fabs(x - m.good_x) < 400.f * kUnit && std::fabs(z - m.good_z) < 400.f * kUnit) { m.good_x = x; m.good_z = z; }
+    if (settled && m.good_valid && std::fabs(x - m.good_x) < 8.f * kCell && std::fabs(z - m.good_z) < 8.f * kCell) { m.good_x = x; m.good_z = z; }
     if (m.last_check == 0u || now - m.last_check >= 8u) { m.prev_x = x; m.prev_z = z; m.last_check = now; }
     // A step between adjacent cells that actually happened is the ground truth for that edge.
     if (m.last_cell.first != INT_MIN && here != m.last_cell) {
+        bool linked = false;
         for (int d = 0; d < 4; ++d)
             if (neighbour(m.last_cell, d) == here) {
                 edge(m.last_cell)[static_cast<std::size_t>(d)] = 1;
                 edge(here)[static_cast<std::size_t>(opposite(d))] = 1;
+                linked = true;
             }
+        if (!linked && floor_of(m.last_cell.first) != floor_of(here.first)) {
+            const int dx = cell_x(here) - cell_x(m.last_cell), dz = here.second - m.last_cell.second;
+            for (int d = 0; d < 4; ++d)
+                if (dx == kDx[d] && dz == kDz[d]) {
+                    m.hops[{m.last_cell, d}] = here;
+                    m.hops[{here, opposite(d)}] = m.last_cell;
+                    edge(m.last_cell)[static_cast<std::size_t>(d)] = 1;
+                    edge(here)[static_cast<std::size_t>(opposite(d))] = 1;
+                    LOG_I("mapper", "stairs: floor %d -> %d at cell (%d,%d) direction %d", floor_of(m.last_cell.first), fl, cell_x(m.last_cell), m.last_cell.second, d);
+                }
+        }
     }
     m.last_cell = here;
     m.visited.insert(here);
@@ -951,6 +1027,7 @@ u32 tour_buttons() {
         std::vector<std::tuple<int, int, int>> targets; // (cell x, cell z, dir)
         std::size_t index{};
         std::size_t last{};
+        std::map<std::pair<Cell, int>, Cell> hops; // floor changes (see the mapper)
         std::vector<Cell> done_cells; // cells interacted from (nearby spots are the same object)
         Phase phase{Phase::Goto};
         u64 phase_start{};
@@ -981,9 +1058,15 @@ u32 tour_buttons() {
         char line[256];
         while (std::fgets(line, sizeof(line), f) != nullptr) {
             if (std::sscanf(line, "%15s", tag) != 1) continue;
+            if (std::string(tag) == "HOP" && std::sscanf(line, "HOP %d %d %d %d %d", &a, &b, &c, &d, &e) == 5) t.hops[{Cell{a, b}, c}] = Cell{d, e};
             if (std::string(tag) == "AXES") std::sscanf(line, "AXES %f %f %f %f", &t.axes[0], &t.axes[1], &t.axes[2], &t.axes[3]);
             if (std::string(tag) == "CELL") std::sscanf(line, "CELL %f", &t.cell);
             if (std::string(tag) == "C" && std::sscanf(line, "C %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) t.edges[{a, b}] = {c, d, e, g};
+            if (std::string(tag) == "EXIT" && std::sscanf(line, "EXIT %d %d %d", &a, &b, &c) == 3) {
+                // an exit found while walking (stairs): walk into the recorded direction (all four when unknown)
+                for (int d = 0; d < 4; ++d)
+                    if (c == 4 || c == d) t.targets.emplace_back(a, b, d + 10);
+            }
             if (std::string(tag) == "EV" && std::sscanf(line, "EV %d %d %d", &a, &b, &c) == 3 && c >= 0 && c < 4) t.targets.emplace_back(a, b, c);
         }
         std::fclose(f);
@@ -996,7 +1079,7 @@ u32 tour_buttons() {
         const float kCell = t.cell;
         const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
     // An area change (stairs, door): the position jumps. Report it, optionally keep a savestate and stop (P2_TOUR_AREA_SLOT).
-    if (t.prev_valid && !t.area_changed && (std::fabs(raw_x - t.prev_raw_x) > 1500.f * (kCell / 48.f) || std::fabs(raw_z - t.prev_raw_z) > 1500.f * (kCell / 48.f)) &&
+    if (t.prev_valid && !t.area_changed && (std::fabs(raw_x - t.prev_raw_x) > 4.f * kCell || std::fabs(raw_z - t.prev_raw_z) > 4.f * kCell) &&
         t.phase != Phase::Goto) {
         t.area_changed = true;
         t.area_at = now;
@@ -1008,7 +1091,7 @@ u32 tour_buttons() {
         static const char *slot = std::getenv("P2_TOUR_AREA_SLOT");
         static bool saved = false;
         static bool banner_done = false;
-        if (!banner_done && now >= t.area_at + 90u) {
+        if (!banner_done && now >= t.area_at + 410u) {
             banner_done = true;
             if (const char *bf = std::getenv("P2_TOUR_BANNER_FILE")) {
                 std::FILE *f = std::fopen(bf, "wb");
@@ -1029,7 +1112,7 @@ u32 tour_buttons() {
                 }
             }
         }
-        if (slot != nullptr && !saved && now >= t.area_at + 400u) { saved = true; savestate_exit_after_save(true); savestate_request_save(std::atoi(slot)); }
+        if (slot != nullptr && !saved && now >= t.area_at + 450u) { saved = true; savestate_exit_after_save(true); savestate_request_save(std::atoi(slot)); }
         // let the new area settle (dialogue taps are handled by the code below)
     }
     }
@@ -1054,7 +1137,16 @@ u32 tour_buttons() {
     const auto &axes = t.axes;
     const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
     const float x = raw_x * axes[2] + raw_z * axes[3], z = -(raw_x * axes[0] + raw_z * axes[1]);
-    const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
+    constexpr int kFloorOff = 100000;
+    const int fl = static_cast<int>(mem().load8(0x08CE819Du));
+    auto floor_of = [&](int cx) { return static_cast<int>(std::floor((static_cast<double>(cx) + kFloorOff / 2) / kFloorOff)); };
+    auto cell_x = [&](Cell c) { return c.first - floor_of(c.first) * kFloorOff; };
+    auto neighbour = [&](Cell c, int d) {
+        const auto it = t.hops.find({c, d});
+        if (it != t.hops.end()) return it->second;
+        return Cell{c.first + kDx[d], c.second + kDz[d]};
+    };
+    const Cell here{static_cast<int>(std::floor(x / kCell)) + fl * kFloorOff, static_cast<int>(std::floor(z / kCell))};
     const auto [tx, tz, td] = t.targets[t.index];
     const Cell target{tx, tz};
     if (t.phase == Phase::Goto && t.phase_start == t.phase_start) {
@@ -1076,7 +1168,7 @@ u32 tour_buttons() {
             if (it == t.edges.end()) continue;
             for (int d = 0; d < 4; ++d) {
                 if (it->second[static_cast<std::size_t>(d)] != 1) continue;
-                const Cell n{c.first + kDx[d], c.second + kDz[d]};
+                const Cell n = neighbour(c, d);
                 if (parent.count(n)) continue;
                 parent[n] = c;
                 if (n == here) { reached = true; break; }
@@ -1089,15 +1181,28 @@ u32 tour_buttons() {
             return 0u;
         }
         const Cell next = parent[here];
-        // stuck? (the map says passable but the party does not move)
-        if (std::fabs(x - t.last_x) + std::fabs(z - t.last_z) > 3.f * (kCell / 48.f)) { t.last_x = x; t.last_z = z; t.last_move = now; }
+        static const bool tour_log = std::getenv("P2_TOUR_LOG") != nullptr;
+        if (tour_log && now % 120u == 0u) LOG_I("tour", "goto #%zu (%d,%d): here (%d,%d) next (%d,%d) pos (%.2f,%.2f) last_move %lld ago", t.index, tx, tz, here.first, here.second, next.first, next.second, static_cast<double>(x), static_cast<double>(z), static_cast<long long>(now - t.last_move));
+        // stuck? (the map says passable but the party does not move): forget that edge and plan around it
+        if (std::fabs(x - t.last_x) + std::fabs(z - t.last_z) > 0.4f * kCell) { t.last_x = x; t.last_z = z; t.last_move = now; } // (jitter against a wall is not movement)
+        if (now - t.last_move > 48u) {
+            for (int d = 0; d < 4; ++d)
+                if (neighbour(here, d) == next) {
+                    t.edges[here][static_cast<std::size_t>(d)] = 0;
+                    t.edges[next][static_cast<std::size_t>(d ^ 1)] = 0;
+                }
+            t.last_move = now;
+            return 0u;
+        }
         if (now - t.phase_start > 3000u) { LOG_I("tour", "#%zu timed out, skipping", t.index); ++t.index; t.phase_start = now; return 0u; }
-        for (int d = 0; d < 4; ++d)
-            if (here.first + kDx[d] == next.first && here.second + kDz[d] == next.second) return kDirButtons[d];
-        return 0u;
+        // steer towards the centre of the next cell along the axis with the larger error (like the mapper's walk): pressing the
+        // direction of the neighbouring cell alone oscillates at cell borders when the camera axes are not orthogonal
+        const float ex = (static_cast<float>(cell_x(next)) + 0.5f) * kCell - x, ez = (static_cast<float>(next.second) + 0.5f) * kCell - z;
+        if (std::fabs(ex) >= std::fabs(ez)) return ex < 0.f ? kDirButtons[2] : kDirButtons[3];
+        return ez < 0.f ? kDirButtons[0] : kDirButtons[1];
     }
     if (t.phase == Phase::Face) {
-        if (now - t.phase_start < 14u) return kDirButtons[td];
+        if (now - t.phase_start < 14u) return kDirButtons[td % 10];
         t.phase = Phase::Interact;
         t.phase_start = now;
         return 0u;
@@ -1106,6 +1211,7 @@ u32 tour_buttons() {
         if (dialogue_visible() && !t.dialogue_seen) { t.dialogue_seen = true; LOG_I("tour", "#%zu DIALOGUE at vblank %llu", t.index, static_cast<unsigned long long>(now)); }
         if (now == t.phase_start + 1u) t.done_cells.push_back(target);
         if (now == t.phase_start + 1u) LOG_I("tour", "#%zu cell (%d,%d) dir %d: interacting at vblank %llu", t.index, tx, tz, td, static_cast<unsigned long long>(now));
+        if (td >= 10) { if (now - t.phase_start < 90u) return kDirButtons[td % 10]; t.phase = Phase::Wait; t.phase_start = now; return 0u; }
         if (now - t.phase_start < 3u && !t.no_cross) return 0x4000u;
         if (now - t.phase_start < 8u) return 0u;
         t.phase = Phase::Wait;
