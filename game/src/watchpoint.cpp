@@ -113,13 +113,15 @@ int g_read_logs{};
 bool g_read_armed{}, g_read_pending{};
 u64 g_read_at{};
 
-char *g_read_step_page{};
-std::map<std::tuple<bool, u32, u32>, unsigned long long> g_read_seen; // (is_read, ra, pc) -> count
+thread_local char *g_read_step_page{};
+unsigned long long g_read_av{}, g_read_ss{};
+std::map<std::tuple<bool, unsigned long long, u32>, unsigned long long> g_read_seen; // (is_read, host rip, page) -> count
 
 LONG CALLBACK read_handler(PEXCEPTION_POINTERS info) {
     const DWORD code = info->ExceptionRecord->ExceptionCode;
     if (code == EXCEPTION_SINGLE_STEP && g_read_step_page != nullptr) {
         DWORD old;
+        ++g_read_ss;
         VirtualProtect(g_read_step_page, g_page_size, PAGE_NOACCESS, &old);  // re-arm after the one access
         g_read_step_page = nullptr;
         info->ContextRecord->EFlags &= ~0x100u;
@@ -132,18 +134,20 @@ LONG CALLBACK read_handler(PEXCEPTION_POINTERS info) {
     DWORD old;
     VirtualProtect(page, g_page_size, PAGE_READWRITE, &old);
     g_read_step_page = page;
+    ++g_read_av;
     info->ContextRecord->EFlags |= 0x100u; // single-step the faulting instruction, then protect again
     const bool is_read = info->ExceptionRecord->ExceptionInformation[0] == 0;
     const auto &c = rt().cpu();
-    const auto key = std::make_tuple(is_read, c.gpr[31], c.gpr[4]);
+    const unsigned long long rip = info->ContextRecord->Rip - reinterpret_cast<DWORD64>(GetModuleHandleW(nullptr));
+    const auto key = std::make_tuple(is_read, rip, static_cast<u32>(reinterpret_cast<uintptr_t>(page)));
     auto it = g_read_seen.find(key);
-    if (it == g_read_seen.end() && g_read_seen.size() < 400) {
+    if (it == g_read_seen.end() && g_read_seen.size() < 400000) {
         g_read_seen[key] = 1;
         const u32 guest = g_read_guest_start + static_cast<u32>(addr - g_read_host_start);
         char line[400];
         const int n = std::snprintf(line, sizeof(line),
-            "[readwatch] vblank %llu %s file+%05x: pc %08x ra %08x sp %08x a0-a3 %08x %08x %08x %08x v0 %08x\n",
-            static_cast<unsigned long long>(g_kernel.vblank_count()), is_read ? "READ " : "WRITE", guest - g_read_guest_start, c.pc, c.gpr[31],
+            "[readwatch] vblank %llu %s file+%05x: rip %llx pc %08x ra %08x sp %08x a0-a3 %08x %08x %08x %08x v0 %08x\n",
+            static_cast<unsigned long long>(g_kernel.vblank_count()), is_read ? "READ " : "WRITE", guest - g_read_guest_start, rip, c.pc, c.gpr[31],
             c.gpr[29], c.gpr[4], c.gpr[5], c.gpr[6], c.gpr[7], c.gpr[2]);
         DWORD written;
         if (n > 0) WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, static_cast<DWORD>(n), &written, nullptr);
@@ -179,9 +183,23 @@ void readwatch_init() {
 
 // Called every vblank: arms the read watch once the requested vblank is reached (after a savestate load).
 void readwatch_tick() {
+    DWORD old;
+    if (g_read_armed) {
+        if ((g_kernel.vblank_count() & 63u) == 0u) {
+            char line[160];
+            const int n = std::snprintf(line, sizeof(line), "[readwatch] vblank %llu faults %llu steps %llu keys %u\n",
+                static_cast<unsigned long long>(g_kernel.vblank_count()), g_read_av, g_read_ss, static_cast<unsigned>(g_read_seen.size()));
+            DWORD written;
+            if (n > 0) WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, static_cast<DWORD>(n), &written, nullptr);
+        }
+        // Re-protect the whole range every vblank: the single-step re-arm loses pages when another host
+        // thread faults in between, which silenced the watch after a dozen vblanks.
+        VirtualProtect(g_read_lo, static_cast<SIZE_T>(g_read_hi - g_read_lo), PAGE_NOACCESS, &old);
+        return;
+    }
     if (!g_read_pending || g_kernel.vblank_count() < g_read_at) return;
     g_read_pending = false;
-    DWORD old;
+    g_read_armed = true;
     VirtualProtect(g_read_lo, static_cast<SIZE_T>(g_read_hi - g_read_lo), PAGE_NOACCESS, &old);
     LOG_I("watch", "read/write watch armed at vblank %llu", static_cast<unsigned long long>(g_kernel.vblank_count()));
 }

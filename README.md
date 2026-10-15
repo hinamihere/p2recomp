@@ -191,6 +191,29 @@ XInput/SDL gamepads are supported.
 * `tools/doorwalk.py <slot> <LEFT|RIGHT> <tries> <png>` walks a corridor pressing UP+Cross at every step and sheets the results.
 * `P2_IOTRACE=1` logs every sceIoRead (fd, offset, size, caller).
 
+## Classroom scene packages (decoded)
+
+Classrooms and other interiors are not F-files: each is one `event.bin` entry (`tools/eventbin.py` unpacks them to
+`build/event/script_NNN.bin`). `tools/evscene.py <script_NNN.bin> parts|triggers|collision|labels|dis [LABEL|all]|flags`
+decodes a package: a `u32` part count and part sizes, then the parts 16-byte aligned: 0 textures, 1 the `NNNN.smd` room model,
+2 an 8 KB work area, 3 (1 KB), 4 collision, 5 door props (24-byte records), 6 (4 bytes), 7 triggers, 8 the script, 9 `PSPCHECK`.
+Parts 4 and 7 share one layout: seven `(count, offset)` pairs for points (`x, y, z` as `i16`, room units: the leader's position is the
+`i32` triple at `0x08e44c14`), segments (two point indices + 8-byte tag), boxes (16 bytes) and quads (four point indices + 8-byte tag);
+a trigger tag's byte 0 is the script label number and byte 1 the required facing (0..255 = 0..360 degrees).
+
+The script is 32-bit bytecode: header `(0x18, 0x18, label count, index offset, code offset, text offset)`, 72-byte labels
+(name + instruction index), an index of `(opcode, argument offset)` pairs and argument words (bit 31 = register, else a 31-bit
+signed value). Opcodes seen: `0x5e` set flag, `0x60` load flag into a register, `0x01`/`0x02` jump if set/clear, `0x07` jump,
+`0x31` place NPC (char, model, x, y, z, facing), `0x2c` place the party, `0x46` bind a character to a label, `0x51` warp
+(0, floor, door, 30, 0), `0x13` show text, `0x0e` end of handler.
+
+Story flags are a bit array at `0x08e3b414` (flag `n` = byte `n/8`, bit `n%8`, LSB first). The emblem-clock hunt: flag 260 = hunt
+active, 267 = hunt finished (set by script 010); each clock room's `MONMON` handler (trigger quad at x 536..605, z -60..-20 in front of the
+blackboard, facing 0x38) sets its room flag - 250: 1079, 254: 1080, 256: 1081, 265: 1082, 396: 1083, 272: 1084, 276: 1085 - and when
+all seven are set also flags 266 and 1094. Pre-setting a room's bit with `P2_POKE` makes `MONMON` take the "already destroyed" branch.
+In the `0005.smd` classrooms the stick maps to the room axes diagonally: DOWN+LEFT = -x, DOWN+RIGHT = -z, UP+LEFT = +z,
+UP+RIGHT = +x; Yukino stands at (667, -38) next to the clock zone, so approach it from below the teacher's dais.
+
 ## Dungeon/field data (decoded)
 
 `tools/p2lz.py <file>` decodes the chunk container used by `F0097-F0136.BIN` and `DNGSCN.BNP` (`[type u32][size incl. header u32][usize u32]`
