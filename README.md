@@ -190,3 +190,12 @@ XInput/SDL gamepads are supported.
 * Principal's Office (script 008, then 009 where Maya and Yukino join): 3F, west end of the main corridor 3-D..3-A, go north (screen DOWN) from the vestibule, door on the corridor's side. The scene plays correctly (portraits, Persona summon effects, party grows to five).
 * `tools/doorwalk.py <slot> <LEFT|RIGHT> <tries> <png>` walks a corridor pressing UP+Cross at every step and sheets the results.
 * `P2_IOTRACE=1` logs every sceIoRead (fd, offset, size, caller).
+
+## Dungeon/field data (decoded)
+
+`tools/p2lz.py <file>` decodes the chunk container used by `F0097-F0136.BIN` and `DNGSCN.BNP` (`[type u32][size incl. header u32][usize u32]`
+chunks, 4-byte aligned). Method 2 (type bytes `..0201`) is a byte LZ: `c < 0x80` copies `c+1` literal bytes; `c >= 0x80` copies
+`(c & 0x7f) + 3` bytes from distance `next_byte + 1`. Every such chunk decodes to exactly its stated size and consumes all input; chunk 0 of
+F0097 matches the copy the game keeps in RAM except for 32 relocated pointers. Chunk types `..0103` hold sound-bank-like data (`d00_snd`),
+not LZ. F0097 chunk 0 (51 580 bytes) is the floor map: a 0x2c-byte descriptor per area (`2c 00 14 00 ff ff 00 00 <id> <7 offsets>`) followed by
+tile layers of 16-bit cells (0x33, 0x8000-flagged layers) and 16-byte event records (`0x1c50c`), chunk 1 an offset table, chunk 2 textures.
