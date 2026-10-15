@@ -583,9 +583,6 @@ u32 confirm_taps(u64 now) {
 u32 mapper_buttons() {
     static const char *out_path = std::getenv("P2_MAPPER");
     if (out_path == nullptr) return 0u;
-    static const float kCell = [] { const char *e = std::getenv("P2_MAPPER_CELL"); return e ? static_cast<float>(std::atof(e)) : 48.f; }();
-    // kCell is about one step of the party (48 units in the dungeon, ~0.6 in the courtyard-style maps: P2_MAPPER_CELL)
-    const float kUnit = kCell / 48.f; // scale of all absolute thresholds below
     constexpr u32 kEventFlag = 0x08CA269Cu, kParty = 0x08E3CCBCu;
     static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
     static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
@@ -614,22 +611,34 @@ u32 mapper_buttons() {
         std::map<std::tuple<int, int, int>, int> blocked_seen; // how often (cell, dir) was found blocked
         u64 battle_hold{}, wait_until{}, step_start{};
         std::tuple<int, int, int> retry_key{INT_MIN, 0, 0}; // (cell, dir) of a probe that has already failed once
+        // Calibration: the stick directions in world coordinates and the size of a cell are measured at the start.
+        std::array<float, 4> axes{0.f, -1.f, 1.f, 0.f};  // world direction of stick UP (ux,uz) and RIGHT (rx,rz)
+        float cell{48.f};
+        bool calibrated{};
+        int cal_step{}, cal_tries{};
+        bool cal_started{};
+        u64 cal_t{};
+        float cal_x{}, cal_z{};
+        std::array<std::pair<float, float>, 4> cal_disp{};
     };
     static Mapper m = [] {
         Mapper r;
         if (const char *slot = std::getenv("P2_MAPPER_SLOT")) r.checkpoint_slot = std::atoi(slot);
+        if (const char *cell = std::getenv("P2_MAPPER_CELL")) { r.cell = static_cast<float>(std::atof(cell)); r.calibrated = true; }
+        if (const char *e = std::getenv("P2_MAPPER_AXES")) {
+            std::sscanf(e, "%f,%f,%f,%f", &r.axes[0], &r.axes[1], &r.axes[2], &r.axes[3]);
+            const float un = std::sqrt(r.axes[0] * r.axes[0] + r.axes[1] * r.axes[1]), rn = std::sqrt(r.axes[2] * r.axes[2] + r.axes[3] * r.axes[3]);
+            r.axes[0] /= un; r.axes[1] /= un; r.axes[2] /= rn; r.axes[3] /= rn;
+            r.calibrated = true;
+        }
         return r;
     }();
     const u64 now = g_kernel.vblank_count();
-    // The map is kept in "screen-aligned" coordinates: P2_MAPPER_AXES="ux,uz,rx,rz" gives the world direction of stick UP and
-    // RIGHT (default 0,-1,1,0; the courtyard-style areas with a diagonal camera use -1,-1,1,-1).
-    static const std::array<float, 4> axes = [] {
-        std::array<float, 4> a{0.f, -1.f, 1.f, 0.f};
-        if (const char *e = std::getenv("P2_MAPPER_AXES")) std::sscanf(e, "%f,%f,%f,%f", &a[0], &a[1], &a[2], &a[3]);
-        const float un = std::sqrt(a[0] * a[0] + a[1] * a[1]), rn = std::sqrt(a[2] * a[2] + a[3] * a[3]);
-        a[0] /= un; a[1] /= un; a[2] /= rn; a[3] /= rn;
-        return a;
-    }();
+    // The map is kept in "screen-aligned" coordinates: m.axes holds the world direction of stick UP and RIGHT (measured by the
+    // calibration at the start, or given by P2_MAPPER_AXES="ux,uz,rx,rz"; the dungeon floors use 0,-1,1,0).
+    const float kCell = m.cell;
+    const float kUnit = kCell / 48.f; // scale of the absolute thresholds below
+    const auto &axes = m.axes;
     const float raw_x = guest_float(m.xaddr), raw_z = guest_float(m.zaddr);
     const float x = raw_x * axes[2] + raw_z * axes[3];      // along stick RIGHT
     const float z = -(raw_x * axes[0] + raw_z * axes[1]);   // along stick DOWN
@@ -645,6 +654,8 @@ u32 mapper_buttons() {
     auto save_map = [&] {
         std::FILE *f = std::fopen(out_path, "w");
         if (f == nullptr) return;
+        std::fprintf(f, "AXES %f %f %f %f\nCELL %f\n", static_cast<double>(m.axes[0]), static_cast<double>(m.axes[1]),
+                     static_cast<double>(m.axes[2]), static_cast<double>(m.axes[3]), static_cast<double>(m.cell));
         for (const auto &[c, e] : m.edges) std::fprintf(f, "C %d %d %d %d %d %d\n", c.first, c.second, e[0], e[1], e[2], e[3]);
         for (const auto &c : m.visited) std::fprintf(f, "V %d %d\n", c.first, c.second);
         for (const auto &[cx, cz, d] : m.events) std::fprintf(f, "EV %d %d %d\n", cx, cz, d);
@@ -662,7 +673,7 @@ u32 mapper_buttons() {
     m.last_now = now;
 
     // First call: take the checkpoint used for rollbacks.
-    if (!m.checkpoint_saved && now > 20u) {
+    if (!m.checkpoint_saved && m.calibrated && now > 20u) { // (after the calibration: the checkpoint is where the map starts)
         m.checkpoint_saved = true;
         savestate_request_save(m.checkpoint_slot);
         m.start_vblank = now;
@@ -692,6 +703,42 @@ u32 mapper_buttons() {
         for (int i = 0; i < 3; ++i) down += mem().load16(kParty + 0x54u * static_cast<u32>(i)) == 0u ? 1 : 0;
         if (down >= 2 && m.checkpoint_saved && now - m.start_vblank > 100u) rollback("party knocked out");
         return battle_taps(now);
+    }
+
+    // Calibration: hold each stick direction for 14 vblanks and measure how the position moves.
+    if (!m.calibrated) {
+        if (now - m.battle_hold < 400u && m.battle_hold != 0u) m.cal_started = false;
+        if (!m.cal_started) { m.cal_started = true; m.cal_t = now; m.cal_x = raw_x; m.cal_z = raw_z; }
+        const u64 t = now - m.cal_t;
+        if (t >= 50u) {
+            m.cal_disp[static_cast<std::size_t>(m.cal_step)] = {raw_x - m.cal_x, raw_z - m.cal_z};
+            ++m.cal_step;
+            m.cal_started = false;
+            if (m.cal_step >= 4) {
+                const auto &d = m.cal_disp;
+                const float ux = d[0].first - d[1].first, uz = d[0].second - d[1].second;
+                const float rx = d[3].first - d[2].first, rz = d[3].second - d[2].second;
+                const float un = std::sqrt(ux * ux + uz * uz), rn = std::sqrt(rx * rx + rz * rz);
+                float walk = 0.f;
+                for (const auto &v : d) walk += std::sqrt(v.first * v.first + v.second * v.second);
+                walk /= 4.f;
+                m.cal_step = 0;
+                if (un > 0.01f && rn > 0.01f && walk > 0.01f) {
+                    m.axes = {ux / un, uz / un, rx / rn, rz / rn};
+                    m.cell = walk;
+                    m.calibrated = true;
+                    m.edges.clear(); m.visited.clear(); m.events.clear(); m.exits.clear(); m.blocked_seen.clear();
+                    m.good_valid = false; m.last_cell = {INT_MIN, 0};
+                    LOG_I("mapper", "calibrated: stick UP = (%.2f, %.2f), RIGHT = (%.2f, %.2f), cell %.3f", static_cast<double>(m.axes[0]), static_cast<double>(m.axes[1]), static_cast<double>(m.axes[2]), static_cast<double>(m.axes[3]), static_cast<double>(m.cell));
+                } else if (++m.cal_tries >= 3) {
+                    m.calibrated = true; // could not measure: keep the defaults
+                    LOG_E("mapper", "calibration failed, using the defaults");
+                }
+            }
+            return 0u;
+        }
+        if (t < 14u) return kDirButtons[m.cal_step];
+        return 0u;
     }
 
     // Large jump of the position since the last settled field frame: another area (or a door transition). Record the exit
@@ -786,6 +833,7 @@ u32 mapper_buttons() {
             LOG_I("mapper", "mapping complete: %zu cells, %zu events, %zu exits", m.edges.size(), m.events.size(), m.exits.size());
             save_map();
             m.mode = Mode::Done;
+            if (std::getenv("P2_MAPPER_EXIT") != nullptr) rt().stop("mapper: mapping complete");
             return 0u;
         }
         m.mode = m.route.empty() ? Mode::Probe : Mode::Walk;
@@ -894,7 +942,6 @@ bool dialogue_visible() {
 u32 tour_buttons() {
     static const char *env = std::getenv("P2_TOUR");
     if (env == nullptr) return 0u;
-    static const float kCell = [] { const char *e = std::getenv("P2_MAPPER_CELL"); return e ? static_cast<float>(std::atof(e)) : 48.f; }();
     static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
     static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
     using Cell = std::pair<int, int>;
@@ -912,6 +959,12 @@ u32 tour_buttons() {
         Cell last_here{INT_MIN, 0};
         u64 last_move{};
         float last_x{}, last_z{};
+        bool dialogue_seen{}, area_changed{};
+        u64 area_at{};
+        float prev_raw_x{}, prev_raw_z{};
+        bool prev_valid{};
+        std::array<float, 4> axes{0.f, -1.f, 1.f, 0.f}; // from the map file (AXES line), see the mapper
+        float cell{48.f};
     };
     static Tour t;
     const u64 now = g_kernel.vblank_count();
@@ -928,6 +981,8 @@ u32 tour_buttons() {
         char line[256];
         while (std::fgets(line, sizeof(line), f) != nullptr) {
             if (std::sscanf(line, "%15s", tag) != 1) continue;
+            if (std::string(tag) == "AXES") std::sscanf(line, "AXES %f %f %f %f", &t.axes[0], &t.axes[1], &t.axes[2], &t.axes[3]);
+            if (std::string(tag) == "CELL") std::sscanf(line, "CELL %f", &t.cell);
             if (std::string(tag) == "C" && std::sscanf(line, "C %d %d %d %d %d %d", &a, &b, &c, &d, &e, &g) == 6) t.edges[{a, b}] = {c, d, e, g};
             if (std::string(tag) == "EV" && std::sscanf(line, "EV %d %d %d", &a, &b, &c) == 3 && c >= 0 && c < 4) t.targets.emplace_back(a, b, c);
         }
@@ -937,11 +992,53 @@ u32 tour_buttons() {
         LOG_I("tour", "%zu cells, %zu interaction spots, tour %zu..%zu", t.edges.size(), t.targets.size(), t.index, t.last);
         t.phase_start = now;
     }
+    {
+        const float kCell = t.cell;
+        const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
+    // An area change (stairs, door): the position jumps. Report it, optionally keep a savestate and stop (P2_TOUR_AREA_SLOT).
+    if (t.prev_valid && !t.area_changed && (std::fabs(raw_x - t.prev_raw_x) > 1500.f * (kCell / 48.f) || std::fabs(raw_z - t.prev_raw_z) > 1500.f * (kCell / 48.f)) &&
+        t.phase != Phase::Goto) {
+        t.area_changed = true;
+        t.area_at = now;
+        LOG_I("tour", "#%zu AREA CHANGE at vblank %llu: (%.1f,%.1f) -> (%.1f,%.1f)", t.index, static_cast<unsigned long long>(now), static_cast<double>(t.prev_raw_x),
+              static_cast<double>(t.prev_raw_z), static_cast<double>(raw_x), static_cast<double>(raw_z));
+    }
+    t.prev_raw_x = raw_x; t.prev_raw_z = raw_z; t.prev_valid = true;
+    if (t.area_changed) {
+        static const char *slot = std::getenv("P2_TOUR_AREA_SLOT");
+        static bool saved = false;
+        static bool banner_done = false;
+        if (!banner_done && now >= t.area_at + 90u) {
+            banner_done = true;
+            if (const char *bf = std::getenv("P2_TOUR_BANNER_FILE")) {
+                std::FILE *f = std::fopen(bf, "wb");
+                if (f != nullptr) {
+                    const u32 w = 480, h = 28, image = w * h * 4, file = 54 + image;
+                    u8 header[54]{'B', 'M'};
+                    auto put32 = [&](int at, u32 v) { for (int i = 0; i < 4; ++i) header[at + i] = static_cast<u8>(v >> (8 * i)); };
+                    put32(2, file); put32(10, 54); put32(14, 40); put32(18, w); put32(22, h);
+                    header[26] = 1; header[28] = 32; put32(34, image);
+                    std::fwrite(header, 1, sizeof(header), f);
+                    for (int y = static_cast<int>(h) - 1; y >= 0; --y)
+                        for (u32 x = 0; x < w; ++x) {
+                            const u32 p = g_frame[static_cast<std::size_t>(y) * 480 + x];
+                            const u8 bgra[4] = {static_cast<u8>(p >> 16), static_cast<u8>(p >> 8), static_cast<u8>(p), 255};
+                            std::fwrite(bgra, 1, 4, f);
+                        }
+                    std::fclose(f);
+                }
+            }
+        }
+        if (slot != nullptr && !saved && now >= t.area_at + 400u) { saved = true; savestate_exit_after_save(true); savestate_request_save(std::atoi(slot)); }
+        // let the new area settle (dialogue taps are handled by the code below)
+    }
+    }
     // Dialogues, transitions: keep confirming and freeze all the tour's timers while they last.
     {
         static u64 busy_until = 0, last_now = 0;
         const u64 elapsed = last_now == 0 || now < last_now ? 0u : now - last_now; // (called more than once per vblank)
         last_now = now;
+        if (dialogue_visible() && t.phase == Phase::Wait && !t.dialogue_seen) { t.dialogue_seen = true; LOG_I("tour", "#%zu DIALOGUE at vblank %llu", t.index, static_cast<unsigned long long>(now)); }
         if (dialogue_visible() || whiteout_screen() || blackout_screen()) busy_until = now + 60u;
         if (now < busy_until) {
             t.phase_start += elapsed;
@@ -953,13 +1050,8 @@ u32 tour_buttons() {
         if (t.phase != Phase::Done) { LOG_I("tour", "tour finished"); t.phase = Phase::Done; }
         return 0u;
     }
-    static const std::array<float, 4> axes = [] {
-        std::array<float, 4> a{0.f, -1.f, 1.f, 0.f};
-        if (const char *e = std::getenv("P2_MAPPER_AXES")) std::sscanf(e, "%f,%f,%f,%f", &a[0], &a[1], &a[2], &a[3]);
-        const float un = std::sqrt(a[0] * a[0] + a[1] * a[1]), rn = std::sqrt(a[2] * a[2] + a[3] * a[3]);
-        a[0] /= un; a[1] /= un; a[2] /= rn; a[3] /= rn;
-        return a;
-    }();
+    const float kCell = t.cell;
+    const auto &axes = t.axes;
     const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
     const float x = raw_x * axes[2] + raw_z * axes[3], z = -(raw_x * axes[0] + raw_z * axes[1]);
     const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
@@ -1011,6 +1103,7 @@ u32 tour_buttons() {
         return 0u;
     }
     if (t.phase == Phase::Interact) {
+        if (dialogue_visible() && !t.dialogue_seen) { t.dialogue_seen = true; LOG_I("tour", "#%zu DIALOGUE at vblank %llu", t.index, static_cast<unsigned long long>(now)); }
         if (now == t.phase_start + 1u) t.done_cells.push_back(target);
         if (now == t.phase_start + 1u) LOG_I("tour", "#%zu cell (%d,%d) dir %d: interacting at vblank %llu", t.index, tx, tz, td, static_cast<unsigned long long>(now));
         if (now - t.phase_start < 3u && !t.no_cross) return 0x4000u;
@@ -1024,6 +1117,7 @@ u32 tour_buttons() {
     if (age < 180u) return (age % 40u < 3u) ? 0x4000u : 0u;
     if (age < 300u) return (age % 40u < 3u) ? 0x2000u : 0u;
     ++t.index;
+    t.dialogue_seen = false;
     t.phase = Phase::Goto;
     t.phase_start = now;
     return 0u;

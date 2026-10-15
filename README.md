@@ -168,6 +168,11 @@ vblanks. (The school's first-floor tour found the courtyard story scene where Ms
 `tools/eventbin.py` unpacks the game's story scripts (`event.bin` = table of offsets + one gzip stream per script, 16-bit text with Atlus
 control codes; format notes from github.com/chenetulipe/P2-FR-IS-PSP) and dumps all 13,000 dialogue lines as searchable text.
 
+`tools/crawl.py <start-slot> [max-areas]` crawls a dungeon area by area: the mapper calibrates the stick directions and cell size of the area
+automatically (the courtyard-style areas have a diagonal camera, the corridors a rotated one), maps it, `tools/spots.py`-style tours every
+interaction spot with one run per spot (`P2_TOUR_AREA_SLOT` keeps a savestate when a door or stairs changes the area, `P2_TOUR_BANNER_FILE` saves
+the location banner), and queues the new areas. Maps, banners and results are kept in `analysis/maps/` (crawl.json is the database).
+
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).
