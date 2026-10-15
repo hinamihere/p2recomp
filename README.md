@@ -234,6 +234,14 @@ set before the floor loads for them to be gone. Walking recipe from the 2-B door
 1079-1085, 266 and 1094 set that starts script 010 (Ms. Saeko); without them the students block the door and say
 "you can't go in there right now". The remap test (`P2_IO_REMAP=220493824,220510208` at the 2-B door) gives the same result.
 
+After the lounge: script 010's KYOSEI2 block sets flags 267, 473 and 1093 once its three clocks are smashed. The janitor's
+room is 1F door 2 (room scripts 258, warp `(0, 3, 2, 7, 4)`); its selector b_007 runs script 011 (the clock-tower-key search)
+when 267 and 473 are set and 261 clear, else enters room 258 - verified at the door (warp there with those flags held, then
+DOWN + Cross). Script 011 sets 261, 268, 526 and 1367 (no item opcode seen). The Clock Tower is on 4F, reached by the stairs
+branch at column 20 of the 3F main corridor (warp door id 41); the "Clock Tower" corridor is the west side of 4F
+(x 112..928, z 5832), but its door/stairs trigger has not been found yet: Cross with flags 261/268 set did nothing at the
+spots tried. Selector b_012 runs script 012 (the tower boss scene) unconditionally; script 013 follows it (sets 269, 270).
+
 `P2_IO_REMAP=<from>,<to>` (decimal file positions, as printed by `P2_IOTRACE=1`) serves a read that starts at `<from>` from
 `<to>` instead. The classroom warp op `0x51 (0, area, door, 30, 0)` can likewise be re-aimed by poking its live arguments
 (1-A: `0x095e1dd8`): area 1 = 3F, 2 = 2F, 3 = 1F; 2F doors 11/21 = 2-A, 25/35 = 2-B, 51/61 = 2-C, 65/75 = 2-D.
