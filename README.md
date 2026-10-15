@@ -238,9 +238,11 @@ After the lounge: script 010's KYOSEI2 block sets flags 267, 473 and 1093 once i
 room is 1F door 2 (room scripts 258, warp `(0, 3, 2, 7, 4)`); its selector b_007 runs script 011 (the clock-tower-key search)
 when 267 and 473 are set and 261 clear, else enters room 258 - verified at the door (warp there with those flags held, then
 DOWN + Cross). Script 011 sets 261, 268, 526 and 1367 (no item opcode seen). The Clock Tower is on 4F, reached by the stairs
-branch at column 20 of the 3F main corridor (warp door id 41); the "Clock Tower" corridor is the west side of 4F
-(x 112..928, z 5832), but its door/stairs trigger has not been found yet: Cross with flags 261/268 set did nothing at the
-spots tried. Selector b_012 runs script 012 (the tower boss scene) unconditionally; script 013 follows it (sets 269, 270).
+branch at column 20 of the 3F main corridor (warp door id 41, then UP 150 up the stairs). 4F is a hall (x 112..2944,
+z 3384..4440) with a corridor down its west side to the "Clock Tower" section (z 5832). The tower entrance is a walk-in
+trigger, not a Cross door: from (928, 5304) on that corridor's east wall, DOWN+RIGHT walks into the doorway, which reads selector
+b_012 and runs script 012 (the boss scene) unconditionally - it fires with or without the key flags, so the key is not
+checked at the door (states 2800/2801 = just outside it, with/without flags). Script 013 follows (sets 269, 270).
 
 `P2_IO_REMAP=<from>,<to>` (decimal file positions, as printed by `P2_IOTRACE=1`) serves a read that starts at `<from>` from
 `<to>` instead. The classroom warp op `0x51 (0, area, door, 30, 0)` can likewise be re-aimed by poking its live arguments
