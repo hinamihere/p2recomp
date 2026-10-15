@@ -213,6 +213,8 @@ blackboard, facing 0x38) sets its room flag - 250: 1079, 254: 1080, 256: 1081, 2
 all seven are set also flags 266 and 1094. Pre-setting a room's bit with `P2_POKE` makes `MONMON` take the "already destroyed" branch.
 In the `0005.smd` classrooms the stick maps to the room axes diagonally: DOWN+LEFT = -x, DOWN+RIGHT = -z, UP+LEFT = +z,
 UP+RIGHT = +x; Yukino stands at (667, -38) next to the clock zone, so approach it from below the teacher's dais.
+`tools/clockroom.py <door-entry slot> <out slot>` smashes the clock of a `0005.smd` classroom from the state just inside door 1
+(input is ignored for the first ~300 vblanks after entering): DOWN+RIGHT 6, DOWN+LEFT 55, UP+LEFT 35, UP+RIGHT 14, UP+LEFT 3, Cross.
 
 ## Dungeon/field data (decoded)
 
