@@ -216,6 +216,23 @@ UP+RIGHT = +x; Yukino stands at (667, -38) next to the clock zone, so approach i
 `tools/clockroom.py <door-entry slot> <out slot>` smashes the clock of a `0005.smd` classroom from the state just inside door 1
 (input is ignored for the first ~300 vblanks after entering): DOWN+RIGHT 6, DOWN+LEFT 55, UP+LEFT 35, UP+RIGHT 14, UP+LEFT 3, Cross.
 
+### Door selectors: branch.bin
+
+Pressing Cross at a door (face it: DOWN then Cross on the corridor's north wall) makes the game read one 2 KB blob of
+`branch.bin` (blob b_NNN at CPK position 220485632 + 0x800 * (NNN + 1)) and run it: `tools/branchbin.py build/cpk/branch.bin [k]` decodes them.
+Each blob is a tiny event-bytecode script that loads story flags and ends in op `0x96`: `(0, N)` runs event.bin script N,
+`(1, n)` enters room n of the dungeon's room list, no `0x96` on the taken path = the door does nothing. In Seven Sisters High
+NNN = door cell id - 7 (the `0xC8nn` cells of the C3 layer in F0097 chunk 0): blob 10 is the Principal's Office (flag 260 clear ->
+script 008), blob 11 the Teachers' Lounge (flag 778 set, 266 set, 267 clear -> script 010, the emblem-hunt finale with
+Ms. Saeko; 267 set -> the plain lounge). So the clock hunt shortcut is: set flags 1079-1085 and 266 in the bit array at
+`0x08e3b414`, then enter the lounge (3F, cell 18 at columns 20-21 of row 2, the branch next to the Principal's Office).
+Verified by remapping the 2-B door's blob read to the lounge blob (`P2_IO_REMAP=220493824,220510208`): with the flags poked
+script 010 plays, without them the door is inert.
+
+`P2_IO_REMAP=<from>,<to>` (decimal file positions, as printed by `P2_IOTRACE=1`) serves a read that starts at `<from>` from
+`<to>` instead. The classroom warp op `0x51 (0, area, door, 30, 0)` can likewise be re-aimed by poking its live arguments
+(1-A: `0x095e1dd8`): area 1 = 3F, 2 = 2F, 3 = 1F; 2F doors 11/21 = 2-A, 25/35 = 2-B, 51/61 = 2-C, 65/75 = 2-D.
+
 ## Dungeon/field data (decoded)
 
 `tools/p2lz.py <file>` decodes the chunk container used by `F0097-F0136.BIN` and `DNGSCN.BNP` (`[type u32][size incl. header u32][usize u32]`

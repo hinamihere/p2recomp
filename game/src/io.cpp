@@ -197,11 +197,34 @@ void io_trace(AllegrexContext &c, const char *what, OpenFile *f) {
           static_cast<unsigned long long>(f->position), arg(c, 2), arg(c, 1), c.gpr[31], c.gpr[29]);
 }
 
+// P2_IO_REMAP=<from>,<to>: a read that starts at file position <from> is served from position <to>
+// instead (debugging: e.g. make a door load another branch.bin blob). Positions are decimal, as in P2_IOTRACE.
+static bool io_remap(OpenFile &f, u64 &saved) {
+    static const auto remap = [] {
+        std::pair<unsigned long long, unsigned long long> r{0, 0};
+        if (const char *e = std::getenv("P2_IO_REMAP")) {
+            char *end = nullptr;
+            r.first = std::strtoull(e, &end, 10);
+            if (end != nullptr && *end == ',') r.second = std::strtoull(end + 1, nullptr, 10);
+        }
+        return r;
+    }();
+    if (remap.first == 0 || f.position != remap.first) return false;
+    saved = f.position;
+    f.position = remap.second;
+    LOG_I("io", "remap read at %llu -> %llu", remap.first, remap.second);
+    return true;
+}
+
 void IoRead(AllegrexContext &c) {
     OpenFile *f = file(static_cast<s32>(arg(c, 0)));
     if (f == nullptr || f->is_dir) { ret(c, err::BADF); return; }
     io_trace(c, "read", f);
-    ret(c, static_cast<u32>(read_file(*f, arg(c, 1), arg(c, 2))));
+    u64 saved = 0;
+    const bool remapped = io_remap(*f, saved);
+    const u32 n = static_cast<u32>(read_file(*f, arg(c, 1), arg(c, 2)));
+    if (remapped) f->position = saved + n;
+    ret(c, n);
 }
 
 void IoReadAsync(AllegrexContext &c) {
