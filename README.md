@@ -182,3 +182,11 @@ Enter = Start, Backspace = Select, F11 or Alt+Enter = fullscreen, Esc = quit.
 Hold Tab to fast-forward. F5 = savestate, F8 = load savestate (Shift for a second slot);
 states go to `states/`. A savestate is taken at the next safe point.
 XInput/SDL gamepads are supported.
+
+## Story progress notes (Seven Sisters High)
+
+* Auto Map: **Square** in a dungeon opens the whole-floor map (current area, floor name, legend). Handy to find unexplored branches.
+* The camera is rotated: the HUD compass shows S at the top, so screen-UP is south, screen-DOWN is north, screen-LEFT is east.
+* Principal's Office (script 008, then 009 where Maya and Yukino join): 3F, west end of the main corridor 3-D..3-A, go north (screen DOWN) from the vestibule, door on the corridor's side. The scene plays correctly (portraits, Persona summon effects, party grows to five).
+* `tools/doorwalk.py <slot> <LEFT|RIGHT> <tries> <png>` walks a corridor pressing UP+Cross at every step and sheets the results.
+* `P2_IOTRACE=1` logs every sceIoRead (fd, offset, size, caller).
