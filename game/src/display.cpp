@@ -59,7 +59,9 @@ void dump_bmp(const std::vector<u32> &pixels, u64 index) {
     // P2_DUMP_VBLANK=1: name frames by the vblank they were presented at (fast-forward runs skip
     // frames, so the index alone does not give the time).
     static const bool by_vblank = std::getenv("P2_DUMP_VBLANK") != nullptr;
-    std::snprintf(name, sizeof(name), "build/frames/frame_%06llu.bmp",
+    // P2_FRAMES_DIR: dump somewhere else than build/frames (parallel runs).
+    static const char *dir = [] { const char *e = std::getenv("P2_FRAMES_DIR"); return e != nullptr ? e : "build/frames"; }();
+    std::snprintf(name, sizeof(name), "%s/frame_%06llu.bmp", dir,
                   static_cast<unsigned long long>(by_vblank ? g_kernel.vblank_count() : index));
     std::FILE *f = std::fopen(name, "wb");
     if (f == nullptr) return;
@@ -650,7 +652,9 @@ u32 mapper_buttons() {
     // Floors: the position keeps running through the stairs, so cells are tagged with the floor (a byte at 08CE819D: 0 = 1F, 2 = 3F, ...)
     // by adding 100000 per floor to the cell's x; stepping onto the stairs changes the floor ("hops").
     constexpr int kFloorOff = 100000;
-    const int fl = static_cast<int>(mem().load8(0x08CE819Du));
+    // P2_NO_FLOOR=1: ignore the floor byte (in classrooms it flickers without any stairs).
+    static const bool no_floor = std::getenv("P2_NO_FLOOR") != nullptr;
+    const int fl = no_floor ? 0 : static_cast<int>(mem().load8(0x08CE819Du));
     auto floor_of = [&](int cx) { return static_cast<int>(std::floor((static_cast<double>(cx) + kFloorOff / 2) / kFloorOff)); };
     auto cell_x = [&](Cell c) { return c.first - floor_of(c.first) * kFloorOff; };
     const Cell here{static_cast<int>(std::floor(x / kCell)) + fl * kFloorOff, static_cast<int>(std::floor(z / kCell))};
@@ -1138,7 +1142,9 @@ u32 tour_buttons() {
     const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
     const float x = raw_x * axes[2] + raw_z * axes[3], z = -(raw_x * axes[0] + raw_z * axes[1]);
     constexpr int kFloorOff = 100000;
-    const int fl = static_cast<int>(mem().load8(0x08CE819Du));
+    // P2_NO_FLOOR=1: ignore the floor byte (in classrooms it flickers without any stairs).
+    static const bool no_floor = std::getenv("P2_NO_FLOOR") != nullptr;
+    const int fl = no_floor ? 0 : static_cast<int>(mem().load8(0x08CE819Du));
     auto floor_of = [&](int cx) { return static_cast<int>(std::floor((static_cast<double>(cx) + kFloorOff / 2) / kFloorOff)); };
     auto cell_x = [&](Cell c) { return c.first - floor_of(c.first) * kFloorOff; };
     auto neighbour = [&](Cell c, int d) {
@@ -1442,7 +1448,10 @@ void display_set_input_script(const std::string &script) {
 
 void display_set_frame_dump(u32 every) {
     g_dump_every = every;
-    if (every != 0u) std::filesystem::create_directories("build/frames");
+    if (every != 0u) {
+        const char *e = std::getenv("P2_FRAMES_DIR");
+        std::filesystem::create_directories(e != nullptr ? e : "build/frames");
+    }
 }
 
 void register_display_imports() {
