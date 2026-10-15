@@ -1322,6 +1322,7 @@ void on_vblank() {
             char buf[32];
             static const bool as_int = std::getenv("P2_WATCH_INT") != nullptr;
             if (as_int) std::snprintf(buf, sizeof(buf), " %u", bits);
+            else if (std::getenv("P2_WATCH_HEX") != nullptr) std::snprintf(buf, sizeof(buf), " %.3f/%x", static_cast<double>(f), bits);
             else std::snprintf(buf, sizeof(buf), " %.3f", static_cast<double>(f));
             line += buf;
         }

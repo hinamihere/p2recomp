@@ -55,6 +55,9 @@ def run_one(n):
     os.makedirs(frames_dir)
     env = dict(os.environ, P2_DUMP_VBLANK="1", P2_NO_ENCOUNTERS="1", P2_FRAMES_DIR=rel)
     spec = recipe.replace("{n}", n)
+    if "x" in n:
+        a, b = n.split("x")
+        spec = recipe.replace("{a}", a).replace("{b}", b)
     last = max(int(p.split("=")[0]) for p in spec.split(","))
     subprocess.run([EXE, "--headless", "--load-state", slot, "--turbo-until", str(v0 + last - 20), "--exit-after", str(v0 + last + after),
                     "--dump-frames", "3", "--input", absolute(spec)], env=env, cwd=ROOT, capture_output=True)
