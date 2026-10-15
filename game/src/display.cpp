@@ -583,7 +583,9 @@ u32 confirm_taps(u64 now) {
 u32 mapper_buttons() {
     static const char *out_path = std::getenv("P2_MAPPER");
     if (out_path == nullptr) return 0u;
-    constexpr float kCell = 48.f; // about one step of the party (they move ~48 units per game frame)
+    static const float kCell = [] { const char *e = std::getenv("P2_MAPPER_CELL"); return e ? static_cast<float>(std::atof(e)) : 48.f; }();
+    // kCell is about one step of the party (48 units in the dungeon, ~0.6 in the courtyard-style maps: P2_MAPPER_CELL)
+    const float kUnit = kCell / 48.f; // scale of all absolute thresholds below
     constexpr u32 kEventFlag = 0x08CA269Cu, kParty = 0x08E3CCBCu;
     static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
     static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
@@ -610,7 +612,7 @@ u32 mapper_buttons() {
         bool good_valid{};
         Cell last_cell{INT_MIN, 0};
         std::map<std::tuple<int, int, int>, int> blocked_seen; // how often (cell, dir) was found blocked
-        u64 battle_hold{}, wait_until{};
+        u64 battle_hold{}, wait_until{}, step_start{};
         std::tuple<int, int, int> retry_key{INT_MIN, 0, 0}; // (cell, dir) of a probe that has already failed once
     };
     static Mapper m = [] {
@@ -619,7 +621,18 @@ u32 mapper_buttons() {
         return r;
     }();
     const u64 now = g_kernel.vblank_count();
-    const float x = guest_float(m.xaddr), z = guest_float(m.zaddr);
+    // The map is kept in "screen-aligned" coordinates: P2_MAPPER_AXES="ux,uz,rx,rz" gives the world direction of stick UP and
+    // RIGHT (default 0,-1,1,0; the courtyard-style areas with a diagonal camera use -1,-1,1,-1).
+    static const std::array<float, 4> axes = [] {
+        std::array<float, 4> a{0.f, -1.f, 1.f, 0.f};
+        if (const char *e = std::getenv("P2_MAPPER_AXES")) std::sscanf(e, "%f,%f,%f,%f", &a[0], &a[1], &a[2], &a[3]);
+        const float un = std::sqrt(a[0] * a[0] + a[1] * a[1]), rn = std::sqrt(a[2] * a[2] + a[3] * a[3]);
+        a[0] /= un; a[1] /= un; a[2] /= rn; a[3] /= rn;
+        return a;
+    }();
+    const float raw_x = guest_float(m.xaddr), raw_z = guest_float(m.zaddr);
+    const float x = raw_x * axes[2] + raw_z * axes[3];      // along stick RIGHT
+    const float z = -(raw_x * axes[0] + raw_z * axes[1]);   // along stick DOWN
     const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
     auto centre = [&](Cell c) { return std::pair<float, float>{(static_cast<float>(c.first) + 0.5f) * kCell, (static_cast<float>(c.second) + 0.5f) * kCell}; };
     auto edge = [&](Cell c) -> std::array<int, 4> & {
@@ -684,7 +697,7 @@ u32 mapper_buttons() {
     // Large jump of the position since the last settled field frame: another area (or a door transition). Record the exit
     // and start over. (Loading screens in between hide the jump from frame-to-frame checks.)
     const bool settled = now >= m.battle_hold + 360u;
-    if (settled && m.good_valid && (std::fabs(x - m.good_x) > 1500.f || std::fabs(z - m.good_z) > 1500.f)) {
+    if (settled && m.good_valid && (std::fabs(x - m.good_x) > 1500.f * kUnit || std::fabs(z - m.good_z) > 1500.f * kUnit)) {
         // The cell the party was in before the jump (last_cell, which is still the old area's cell) is the exit.
         const bool probing = m.mode == Mode::Probe && m.last_cell == m.probe_cell;
         const int dir = probing ? m.probe_dir : 4;
@@ -697,8 +710,8 @@ u32 mapper_buttons() {
         rollback("area change");
         return 0u;
     }
-    if (settled && !m.good_valid && x > 1000.f) { m.good_x = x; m.good_z = z; m.good_valid = true; }
-    if (settled && m.good_valid && std::fabs(x - m.good_x) < 400.f && std::fabs(z - m.good_z) < 400.f) { m.good_x = x; m.good_z = z; }
+    if (settled && !m.good_valid && (std::fabs(x) > 1.f || std::fabs(z) > 1.f)) { m.good_x = x; m.good_z = z; m.good_valid = true; }
+    if (settled && m.good_valid && std::fabs(x - m.good_x) < 400.f * kUnit && std::fabs(z - m.good_z) < 400.f * kUnit) { m.good_x = x; m.good_z = z; }
     if (m.last_check == 0u || now - m.last_check >= 8u) { m.prev_x = x; m.prev_z = z; m.last_check = now; }
     // A step between adjacent cells that actually happened is the ground truth for that edge.
     if (m.last_cell.first != INT_MIN && here != m.last_cell) {
@@ -711,7 +724,7 @@ u32 mapper_buttons() {
     m.last_cell = here;
     m.visited.insert(here);
     if (bubble_visible()) m.events.insert({here.first, here.second, 4}); // 4 = reachable from this cell, direction unknown
-    if (now - m.last_save > 2000u) { m.last_save = now; save_map(); LOG_I("mapper", "vblank %llu at (%.0f, %.0f): %zu cells, %zu visited, %zu events, %zu exits", static_cast<unsigned long long>(now), x, z, m.edges.size(), m.visited.size(), m.events.size(), m.exits.size()); }
+    if (now - m.last_save > 2000u) { m.last_save = now; save_map(); LOG_I("mapper", "vblank %llu at (%.1f, %.1f): %zu cells, %zu visited, %zu events, %zu exits [mode %d, hold %lld, wait %lld]", static_cast<unsigned long long>(now), x, z, m.edges.size(), m.visited.size(), m.events.size(), m.exits.size(), static_cast<int>(m.mode), static_cast<long long>(m.battle_hold) - static_cast<long long>(now), static_cast<long long>(m.wait_until) - static_cast<long long>(now)); }
     if (m.mode == Mode::Done) {
         // Done only means "nothing reachable is unknown"; look again now and then (observed steps add edges).
         if (now % 200u != 0u) return 0u;
@@ -777,15 +790,19 @@ u32 mapper_buttons() {
         }
         m.mode = m.route.empty() ? Mode::Probe : Mode::Walk;
         m.last_progress = now;
+        m.step_start = now;
         m.last_x = x; m.last_z = z;
         m.probe_start = 0; // a probe starts only once the cell is centred
     }
 
     if (m.mode == Mode::Walk) {
         const Cell target = m.route[m.route_i];
+        static const bool walk_verbose = std::getenv("P2_MAPPER_LOG") != nullptr;
+        if (walk_verbose && now % 100u == 0u) LOG_I("mapper", "walking: step %zu/%zu to (%d,%d), here (%d,%d), pos (%.2f,%.2f), progress %lld ago, step %lld old", m.route_i, m.route.size(), target.first, target.second, here.first, here.second, x, z, static_cast<long long>(now - m.last_progress), static_cast<long long>(now - m.step_start));
         const auto [tx, tz] = centre(target);
         const float dx = tx - x, dz = tz - z;
         if (here == target) {
+            m.step_start = now;
             if (++m.route_i >= m.route.size()) {
                 m.mode = Mode::Probe; // arrived in the probe cell
                 m.probe_start = 0;
@@ -793,10 +810,16 @@ u32 mapper_buttons() {
             return 0u;
         }
         // no progress for a while: the map was wrong about this edge
-        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 3.f) { m.last_x = x; m.last_z = z; m.last_progress = now; }
-        if (now - m.last_progress > 40u) {
+        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 0.12f * kCell) { m.last_x = x; m.last_z = z; m.last_progress = now; }
+        if (now - m.last_progress > 40u || now - m.step_start > 360u) { // (jittering against a wall counts as progress, so the step has a time limit too)
             const Cell from = m.route_i == 0 ? here : m.route[m.route_i - 1];
-            for (int d = 0; d < 4; ++d) if (neighbour(from, d) == target) edge(from)[static_cast<std::size_t>(d)] = 0;
+            for (int d = 0; d < 4; ++d)
+                if (neighbour(from, d) == target) {
+                    edge(from)[static_cast<std::size_t>(d)] = 0;
+                    edge(target)[static_cast<std::size_t>(opposite(d))] = 0;
+                    m.blocked_seen[std::make_tuple(from.first, from.second, d)] += 2; // do not probe this edge again
+                    m.blocked_seen[std::make_tuple(target.first, target.second, opposite(d))] += 2;
+                }
             m.mode = Mode::Plan;
             return 0u;
         }
@@ -818,7 +841,7 @@ u32 mapper_buttons() {
         if (verbose && now % 20u == 0u) LOG_I("mapper", "probing (%d,%d) dir %d at (%.0f,%.0f) start (%.0f,%.0f)", m.probe_cell.first, m.probe_cell.second, d, x, z, m.start_x, m.start_z);
         const float moved = (x - m.start_x) * static_cast<float>(kDx[d]) + (z - m.start_z) * static_cast<float>(kDz[d]);
         if (bubble_visible()) m.events.insert({m.probe_cell.first, m.probe_cell.second, d});
-        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 2.f) { m.last_x = x; m.last_z = z; m.last_progress = now; }
+        if (std::fabs(x - m.last_x) + std::fabs(z - m.last_z) > 0.12f * kCell) { m.last_x = x; m.last_z = z; m.last_progress = now; }
         const bool stalled = now - m.last_progress > 22u && now - m.probe_start > 22u; // turning to face the new direction takes a moment
         if (moved >= 0.75f * kCell) {
             if (verbose) LOG_I("mapper", "cell (%d,%d) dir %d: passable (moved %.0f)", m.probe_cell.first, m.probe_cell.second, d, moved);
@@ -852,6 +875,18 @@ u32 mapper_buttons() {
     }
 }
 
+// The dialogue box: its red top border across the lower part of the screen (rows 192-193).
+bool dialogue_visible() {
+    int red = 0, total = 0;
+    for (int y = 192; y < 194; ++y)
+        for (int x = 20; x < 460; ++x) {
+            const u32 p = g_frame[static_cast<std::size_t>(y) * 480 + x];
+            red += ((p & 0xFF) > 120 && ((p >> 8) & 0xFF) < 60 && ((p >> 16) & 0xFF) < 60) ? 1 : 0;
+            ++total;
+        }
+    return red * 10 > total * 8;
+}
+
 // P2_TOUR=<map file>[,first[,last]]: walks to the interaction spots recorded in a map (see P2_MAPPER), faces each one and
 // presses Cross, then pages through whatever happens (dialogue, prompts are declined with Circle afterwards).
 // Every visit is logged ("[tour] #i cell (x,z) dir d: interacting at vblank V") so the frames can be inspected.
@@ -859,7 +894,7 @@ u32 mapper_buttons() {
 u32 tour_buttons() {
     static const char *env = std::getenv("P2_TOUR");
     if (env == nullptr) return 0u;
-    constexpr float kCell = 48.f;
+    static const float kCell = [] { const char *e = std::getenv("P2_MAPPER_CELL"); return e ? static_cast<float>(std::atof(e)) : 48.f; }();
     static constexpr u32 kDirButtons[4] = {0x10u, 0x40u, 0x80u, 0x20u};
     static constexpr int kDx[4] = {0, 0, -1, 1}, kDz[4] = {-1, 1, 0, 0};
     using Cell = std::pair<int, int>;
@@ -901,11 +936,30 @@ u32 tour_buttons() {
         LOG_I("tour", "%zu cells, %zu interaction spots, tour %zu..%zu", t.edges.size(), t.targets.size(), t.index, t.last);
         t.phase_start = now;
     }
+    // Dialogues, transitions: keep confirming and freeze all the tour's timers while they last.
+    {
+        static u64 busy_until = 0, last_now = 0;
+        const u64 elapsed = last_now == 0 || now < last_now ? 0u : now - last_now; // (called more than once per vblank)
+        last_now = now;
+        if (dialogue_visible() || whiteout_screen() || blackout_screen()) busy_until = now + 60u;
+        if (now < busy_until) {
+            t.phase_start += elapsed;
+            return (now % 24u < 3u) ? 0x4000u : 0u;
+        }
+    }
     if (t.phase == Phase::Done || t.index >= t.last) {
         if (t.phase != Phase::Done) { LOG_I("tour", "tour finished"); t.phase = Phase::Done; }
         return 0u;
     }
-    const float x = guest_float(0x08CD4190u), z = guest_float(0x08CD4198u);
+    static const std::array<float, 4> axes = [] {
+        std::array<float, 4> a{0.f, -1.f, 1.f, 0.f};
+        if (const char *e = std::getenv("P2_MAPPER_AXES")) std::sscanf(e, "%f,%f,%f,%f", &a[0], &a[1], &a[2], &a[3]);
+        const float un = std::sqrt(a[0] * a[0] + a[1] * a[1]), rn = std::sqrt(a[2] * a[2] + a[3] * a[3]);
+        a[0] /= un; a[1] /= un; a[2] /= rn; a[3] /= rn;
+        return a;
+    }();
+    const float raw_x = guest_float(0x08CD4190u), raw_z = guest_float(0x08CD4198u);
+    const float x = raw_x * axes[2] + raw_z * axes[3], z = -(raw_x * axes[0] + raw_z * axes[1]);
     const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
     const auto [tx, tz, td] = t.targets[t.index];
     const Cell target{tx, tz};
@@ -937,7 +991,7 @@ u32 tour_buttons() {
         }
         const Cell next = parent[here];
         // stuck? (the map says passable but the party does not move)
-        if (std::fabs(x - t.last_x) + std::fabs(z - t.last_z) > 3.f) { t.last_x = x; t.last_z = z; t.last_move = now; }
+        if (std::fabs(x - t.last_x) + std::fabs(z - t.last_z) > 3.f * (kCell / 48.f)) { t.last_x = x; t.last_z = z; t.last_move = now; }
         if (now - t.phase_start > 3000u) { LOG_I("tour", "#%zu timed out, skipping", t.index); ++t.index; t.phase_start = now; return 0u; }
         for (int d = 0; d < 4; ++d)
             if (here.first + kDx[d] == next.first && here.second + kDz[d] == next.second) return kDirButtons[d];
