@@ -226,8 +226,13 @@ NNN = door cell id - 7 (the `0xC8nn` cells of the C3 layer in F0097 chunk 0): bl
 script 008), blob 11 the Teachers' Lounge (flag 778 set, 266 set, 267 clear -> script 010, the emblem-hunt finale with
 Ms. Saeko; 267 set -> the plain lounge). So the clock hunt shortcut is: set flags 1079-1085 and 266 in the bit array at
 `0x08e3b414`, then enter the lounge (3F, cell 18 at columns 20-21 of row 2, the branch next to the Principal's Office).
-Verified by remapping the 2-B door's blob read to the lounge blob (`P2_IO_REMAP=220493824,220510208`): with the flags poked
-script 010 plays, without them the door is inert.
+Verified at the real door too: the Teachers' Lounge is on 2F (its room scripts 269/270 warp back with `(0, 2, 2, 7, 4)`),
+at the north end of the branch off the west end of the 2F main corridor. Two male students placed by the 2F NPC records
+(characters 152/153, gated on flag 1094) stand in front of it saying the teachers are in an emergency meeting; flag 1094 must be
+set before the floor loads for them to be gone. Walking recipe from the 2-B door landing (state 2330/2590, encounters off):
+`UP:14, LEFT:260, UP:500` reaches the door nook ("Teachers' Lounge" banner), then `RIGHT:20, UP:6, CROSS` opens it. With flags
+1079-1085, 266 and 1094 set that starts script 010 (Ms. Saeko); without them the students block the door and say
+"you can't go in there right now". The remap test (`P2_IO_REMAP=220493824,220510208` at the 2-B door) gives the same result.
 
 `P2_IO_REMAP=<from>,<to>` (decimal file positions, as printed by `P2_IOTRACE=1`) serves a read that starts at `<from>` from
 `<to>` instead. The classroom warp op `0x51 (0, area, door, 30, 0)` can likewise be re-aimed by poking its live arguments
