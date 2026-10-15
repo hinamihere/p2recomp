@@ -15,7 +15,7 @@ import sys
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "build", "release", "p2.exe")
+EXE = os.environ.get("P2_EXE", os.path.join(ROOT, "build", "release", "p2.exe"))
 if not os.path.exists(EXE):
     EXE = os.path.join(ROOT, "build", "ascii", "p2.exe")
 
