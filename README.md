@@ -165,6 +165,9 @@ first floor of the school (3,400 cells incl. the classrooms, 235 interaction spo
 each, presses Cross and pages through the result; `tools/framesheet.py` makes a contact sheet of the dumped frames around given
 vblanks. (The school's first-floor tour found the courtyard story scene where Ms. Ideal's statue moves.)
 
+`tools/eventbin.py` unpacks the game's story scripts (`event.bin` = table of offsets + one gzip stream per script, 16-bit text with Atlus
+control codes; format notes from github.com/chenetulipe/P2-FR-IS-PSP) and dumps all 13,000 dialogue lines as searchable text.
+
 `P2_WATCHPOINT=<hex addr>,...` (log every write to guest words with the writer's host address; map it
 to guest code with a `-g1` build and `tools/profile.py`-style symbolization), `P2_WATCH=<hex addr>,...` logs guest float32 values every vblank (`tools/ramdiff.py` finds candidates
 such as the player position, 08cd4190/94/98 in the field).

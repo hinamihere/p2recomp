@@ -904,6 +904,7 @@ u32 tour_buttons() {
         std::vector<std::tuple<int, int, int>> targets; // (cell x, cell z, dir)
         std::size_t index{};
         std::size_t last{};
+        std::vector<Cell> done_cells; // cells interacted from (nearby spots are the same object)
         Phase phase{Phase::Goto};
         u64 phase_start{};
         bool loaded{};
@@ -944,7 +945,8 @@ u32 tour_buttons() {
         if (dialogue_visible() || whiteout_screen() || blackout_screen()) busy_until = now + 60u;
         if (now < busy_until) {
             t.phase_start += elapsed;
-            return (now % 24u < 3u) ? 0x4000u : 0u;
+            // Cross pages through the text; it must not be pressed once the box is gone (that talks to the person again).
+            return (dialogue_visible() && now % 60u < 5u) ? 0x4000u : 0u; // (the game needs ~5-frame presses with a gap)
         }
     }
     if (t.phase == Phase::Done || t.index >= t.last) {
@@ -963,6 +965,11 @@ u32 tour_buttons() {
     const Cell here{static_cast<int>(std::floor(x / kCell)), static_cast<int>(std::floor(z / kCell))};
     const auto [tx, tz, td] = t.targets[t.index];
     const Cell target{tx, tz};
+    if (t.phase == Phase::Goto && t.phase_start == t.phase_start) {
+        static const int radius = [] { const char *e = std::getenv("P2_TOUR_SPREAD"); return e ? std::atoi(e) : 4; }();
+        for (const Cell &c : t.done_cells)
+            if (std::max(std::abs(c.first - tx), std::abs(c.second - tz)) < radius) { ++t.index; return 0u; }
+    }
 
     if (t.phase == Phase::Goto) {
         if (here == target) { t.phase = Phase::Face; t.phase_start = now; return 0u; }
@@ -1004,6 +1011,7 @@ u32 tour_buttons() {
         return 0u;
     }
     if (t.phase == Phase::Interact) {
+        if (now == t.phase_start + 1u) t.done_cells.push_back(target);
         if (now == t.phase_start + 1u) LOG_I("tour", "#%zu cell (%d,%d) dir %d: interacting at vblank %llu", t.index, tx, tz, td, static_cast<unsigned long long>(now));
         if (now - t.phase_start < 3u && !t.no_cross) return 0x4000u;
         if (now - t.phase_start < 8u) return 0u;
