@@ -19,13 +19,12 @@ import struct
 import subprocess
 import sys
 
-import numpy as np
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.environ.get("P2_EXE", os.path.join(ROOT, "build", "release", "p2.exe"))
 MAPS = os.path.join(ROOT, "analysis", "maps")
-DB = os.path.join(MAPS, "crawl.json")
+DB = os.environ.get("P2_CRAWL_DB", os.path.join(MAPS, "crawl.json"))
 STATES = os.path.join(ROOT, "states")
 
 
@@ -48,24 +47,25 @@ def save_db(db):
 def banner_bits(path):
     """Binarised location banner (left 200x28 pixels of the dumped strip): bright text pixels."""
     img = Image.open(path).convert("L").crop((0, 0, 200, 28))
-    a = np.asarray(img).astype(float)
-    return a > 150
+    return [v > 150 for v in img.getdata()]
 
 
 def banner_differs(p1, p2):
     """Different banner text? (1 - intersection/union of the bright pixels; a fade-in of the same text stays below ~0.15,
     "Class 1-C" against "Class 1-D" differs in one glyph and lands well above it)."""
     a, b = banner_bits(p1), banner_bits(p2)
-    union = (a | b).sum()
+    union = sum(1 for x, y in zip(a, b) if x or y)
     if union == 0:
         return False
-    return 1.0 - (a & b).sum() / union > 0.18
+    inter = sum(1 for x, y in zip(a, b) if x and y)
+    return 1.0 - inter / union > 0.18
 
 
 def is_menu_like(path):
-    a = np.asarray(Image.open(path).convert("RGB")).astype(int)
-    red = (a[3:21, 210:470, 0] > 110) & (a[3:21, 210:470, 1] < 70) & (a[3:21, 210:470, 2] < 70)
-    return red.mean() > 0.3
+    img = Image.open(path).convert("RGB").crop((210, 3, 470, 21))
+    px = list(img.getdata())
+    red = sum(1 for r, g, b in px if r > 110 and g < 70 and b < 70)
+    return red / len(px) > 0.3
 
 
 def run(cmd_env, args, timeout=3000):

@@ -189,15 +189,25 @@ void IoClose(AllegrexContext &c) {
     ret(c, 0u);
 }
 
+// P2_IOTRACE=1: log every read (file descriptor, position, size, destination, caller) to find who loads what.
+void io_trace(AllegrexContext &c, const char *what, OpenFile *f) {
+    static const bool on = std::getenv("P2_IOTRACE") != nullptr;
+    if (!on) return;
+    LOG_I("iotrace", "%s fd %u pos %llu size %x buf %08x ra %08x sp %08x", what, arg(c, 0),
+          static_cast<unsigned long long>(f->position), arg(c, 2), arg(c, 1), c.gpr[31], c.gpr[29]);
+}
+
 void IoRead(AllegrexContext &c) {
     OpenFile *f = file(static_cast<s32>(arg(c, 0)));
     if (f == nullptr || f->is_dir) { ret(c, err::BADF); return; }
+    io_trace(c, "read", f);
     ret(c, static_cast<u32>(read_file(*f, arg(c, 1), arg(c, 2))));
 }
 
 void IoReadAsync(AllegrexContext &c) {
     OpenFile *f = file(static_cast<s32>(arg(c, 0)));
     if (f == nullptr || f->is_dir) { ret(c, err::BADF); return; }
+    io_trace(c, "readasync", f);
     f->async_result = read_file(*f, arg(c, 1), arg(c, 2));
     LOG_T("io", "readasync fd %d size %x -> %lld", arg(c, 0), arg(c, 2), static_cast<long long>(f->async_result));
     ret(c, 0u);
