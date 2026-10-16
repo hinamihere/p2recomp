@@ -256,3 +256,14 @@ chunks, 4-byte aligned). Method 2 (type bytes `..0201`) is a byte LZ: `c < 0x80`
 F0097 matches the copy the game keeps in RAM except for 32 relocated pointers. Chunk types `..0103` hold sound-bank-like data (`d00_snd`),
 not LZ. F0097 chunk 0 (51 580 bytes) is the floor map: a 0x2c-byte descriptor per area (`2c 00 14 00 ff ff 00 00 <id> <7 offsets>`) followed by
 tile layers of 16-bit cells (0x33, 0x8000-flagged layers) and 16-byte event records (`0x1c50c`), chunk 1 an offset table, chunk 2 textures.
+
+## Clock Tower boss fight (played through)
+
+From state 2800 (just outside the 4F tower doorway), `DOWN+RIGHT:40` walks in; scenes 012 pages with Cross, the Hanya battle starts on the gear stage
+(skills Whatever Drill, Chill Drill, Dark Young Legend all render), the results screen shows 130 EXP / ¥12,000 with level-ups, then script 013
+plays (Hanya flees, Maya/Ginko/Eikichi dialogue) and control returns on the 4F Clock Tower corridor. Auto-Battle (Triangle) alone loses with the
+party at about Lv 4: the hero starts the fight at 1 HP. A battle-time cheat that works: the battle keeps two copies of the party table at
+`0x098eaa50` and `0x098eb550` (176-byte records, first u16 of each = HP, u16 at +4/+6 = max HP / SP), so
+`P2_POKE=<vblank>,98eab00,x03e703e7,...` (hex address, raw 32-bit word with `x`) written a few vblanks after the battle state loads gives the party
+999 HP and Hanya's record (the sixth, at `0x098eaa50 + 5*176`) 1 HP. The level-up screens take 9 distribution points per character
+(RIGHT x9 then Cross). Savestates from this run: 3100 (tower loading), 3102 (battle command menu), 3111 / 3200 (after the boss, tower corridor).
