@@ -395,3 +395,27 @@ Findings:
   corridor; the staffer only blocks col 12, so from state 5696 `DOWN:14, LEFT:60, CROSS` enters (5901). The scene's one choice (op `0x1a`, state 5922 = menu open) picks
   HELP or YOUSU; `DOWN, CROSS` = "Wait and see what happens" (sets flag 275, the guide's choice for Eikichi's Prime Persona). The scene (Hiroki, Miyabi, Eikichi's stand) ends
   on the Yumezaki town map with Eikichi back in the party (state 5932). The staffer's own script (DNGSCN 067) only picks his line by flag 274.
+
+## Kasugayama High (F0099) - in progress
+
+Route after Zodiac (script 019: "Next stop, the Cuss High student council president!"): Yumezaki exit node 14 -> Cross -> City Map (Rengedai / Hirasaka /
+Yumezaki / Theater) -> UP, Cross = Hirasaka -> `P2_MAPNAV=16` (Kasugayama High, now a place node) -> Cross enters the Entrance Hall (state 5945).
+F0099 chunk 0 (`build/f99_c0.bin`, decode with tools/p2lz.py): areas 0 = 1F, 1 = 2F, 2 = 3F (38x21 tiles each), 3 = 4F/roof?, 4 = B1F (14x10); the floor byte
+`0x08CE819D` is the area index. Walkability (layer C) as in Zodiac, floor low byte 0x80/0xc0; door cells: C type `0x22` with a `0xC8nn` id in B (normal doors)
+and type `0x2a` (`0xA001` in B, flanked by `0x2c` guards); stairs: the west stair hall rows 33-34 (1F (2-3,34) down to B1F, (6-7,34) up; 2F/3F the same pattern).
+The door-to-selector offset differs per floor (2F `C809` -> b_022 Class 2-1, 3F `C809` -> b_025); `ENTER room n` selectors open room scenes whose script is
+resident in RAM (tools/roomscript.py dumps labels, character placements and flags).
+Steps so far (guide order): 2F Student Council Room = door `C80F` at (4-5,28) (UP+Cross from (4,29)): talk to Eikichi (room (131,-398), sets 787) - the
+"Earnest student" talk (sets 278) could not be located and **flag 278 was set with tools/setflags.py** (state 6510); 3F Class 3-1 (front door `C808`, party at
+(1029,-1356), walk DOWN+RIGHT ~36 frames to Eikichi, sets 788; state 6572); 2F Class 2-4 (east doors `C80D`/`C80E` at col 67, front door DOWN+Cross from (66,16);
+DOWN+RIGHT 57 + DOWN+LEFT 6 + Cross talks to the students in front of Eikichi, sets 789; state 6832).
+Tools: tools/fmarkers.py (layer-B markers per area), tools/stairpush.py, tools/roomexit.py, tools/route.sh (chains cellwalk/stairpush), tools/setflags.py.
+B1F: door `CC03` at (14,12-13) (UP + Cross from (15,12), selector b_028 = `ENTER room 51`) opens the shelter entry scene (script 020) once flag 278 is set.
+**Air Raid Shelter** = dungeon file **F0100** (`build/f100_c0.bin`, one area, 90x84 cells, two halves) plus two link rooms. Bottom room (script 020's
+package, "Bomb Shelter"): exits are walk-in quads EXIT_LEFT x 13..110 / EXIT_RIGHT x 1284..1373 (z -496..-312, face DOWN+RIGHT resp. DOWN+LEFT to
+fire) that warp (op 0x51 `(3, 0, 37|56, 74, dir)`) to the F0100 doors `C805` (38,74) / `C807` (55,74); the top room (door 57 `C803` at (57,10) reads
+b_033 = script 021, door 40 `C801` the other side) links the halves at the top. Doors need Cross (tools/doorpush.py). Crossing the bottom room's
+CHECK segment sets flags 486 -> 487 -> **279**; the top room's CHECK sets 493 -> 494. Stick axes: bottom room UP = (-x,+z), RIGHT = (+x,+z); top room
+UP = (+x,+z), RIGHT = (+x,-z); F0100 like the school. b_032 (flag 279 -> script 022, the sleep scene) is the bottom doors' selector.
+tools/shelterloop.sh runs one circuit (cellwalk halves, doorpush, Cross through the room scene, tools/roomwalk.py slides along beams to the exit quad).
+Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st, 2nd (from the bytecode's repeat branches).

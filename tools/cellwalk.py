@@ -55,7 +55,8 @@ def plan(a):
     return p[::-1]
 
 ax = None
-for it in range(60):
+fails = {}
+for it in range(200):
     cur, fl = cell(slot)
     print('at', cur, 'floor', fl, flush=True)
     if cur == goal: break
@@ -71,6 +72,10 @@ for it in range(60):
                P2_GOTO='8ceb2e0,8ceb2e0,8ceb2e4;' + ';'.join(f'{c},{r}' for c, r in leg))
     drive(slot, out, 120 + 60 * len(leg), '', env)
     new, _ = cell(out)
+    if new != cur and new not in leg:  # drifted sideways: count it as a failed step, keep the new position
+        fails[(cur, p[1])] = fails.get((cur, p[1]), 0) + 1
+        if fails[(cur, p[1])] >= 2: blocked.add((cur, p[1])); print('blocked (drift)', cur, '->', p[1])
+        ax = calib(out)
     if new == cur:
         ax2 = calib(slot)
         if ax2 != ax: ax = ax2; print('recalibrated', ax); continue
