@@ -358,14 +358,36 @@ Findings:
   rows 16..22 cols 2..7 the club block (`0x3b`), rows 0..15 the red maze (`0x32` floors). Layer 1 edge values `0xCA03` are the club doors, `0xCA04/0xCA05/0xCA06` the stair pairs (A1 rows 50/52, A2 (13,5),(21,8),(21,21), A3 (16,3),(16,10)).
   The door/warp cells with `0xCA0n` are not yet located in raw coordinates; the Emergency Exit in the ring is only a "locked" text (DNGSCN chunk 13).
 
-### Zodiac: stairs found (1F -> 2F), 3F still open
+### Zodiac: stairs found (1F -> 2F)
 
 * The warp op arguments are `(dungeon, area, col, row, facing)`: arg 0 selects the dungeon file (1 = Zodiac F0098, 2 = Kasugayama F0099 - poking it warps between dungeons),
   arg 1 the floor (1 = 2F maze, 2 = the 1F hall/club side, 3 = 3F "Secret Lounge"), `x = 256*col - 128`, `z = 256*row - 2613`. Floor 3 crashes the game
-  (`fatal: Guest memory access ... 0x80008000` in `recomp_unit_0097`, 225 vblanks after the warp) - the 3F loader is not usable by teleport.
+  (`fatal: Guest memory access ... 0x80008000` in `recomp_unit_0097`, 225 vblanks after the warp) - the 3F loader is not usable by teleport (climbing the stairs on foot works, see below).
 * The club's DOA0 warp `(1,2,4,34,6)` lands at (896, 6091) on 1F, **west of the club block, in the component that contains the stairs**: `P2_MAPPER` there (`P2_NO_FLOOR=1 P2_NO_BATTLE_DETECT=1`) walks into
   "Zodiac: Stairs" by itself (state 5140). From the landing, `RIGHT:40` climbs to the 2F landing at (5430, 386) (state 5143); the Zodiac staff there only says "Did you remember your mask?" and lets you walk away.
 * The 2F component reachable from that landing (3,500 cells, `analysis/maps/zod2g.txt`, 150k-2M vblanks of the mapper) is closed: x 2544..11592, z 1000..6500, item sparkles on the Auto Map, **no up stairs**.
   The guide puts the stairs to 3F and the Aqua Card box on the west side and Trish's Spring in the centre (warp target (area 1, col 8, row 20) = "Trish's Spring" banner, x 1920, z 2507, which is west of
   the mapped component): the west half of 2F must be entered through something the mapper does not cross (door/teleporter/the spring room).
 * `P2_NO_DIALOGUE_DETECT=1` (tour/mapper) and `tools/exitscan.py <slot> <map> <first> <last>` (walks into the dir-4 event cells of a map, prints AREA CHANGE) were added.
+
+### Zodiac: 2F south strip, 3F and the Strange Mask (all on foot)
+
+* **True position = cell bytes.** The dungeon floats at `08CD4190/98` are camera-frame coordinates: they change frame between camera zones (the two "2F components" mapped
+  before were the *same* floor seen through two frames). The player's cell in the 256-unit grid of the F-file layers is the byte pair `08CEB2E0` (col) / `08CEB2E4` (row);
+  `08CEB358` is the 8-way facing index inside rooms (0 = DOWN+LEFT ... clockwise). The active area descriptor of `F0098.BIN` chunk 0 is the one whose D-G offsets the game
+  has relocated to absolute pointers: 0 = 1F (14x32 tiles), **1 = 2F (19x18)**, 2 = an unused 2F variant (25x25), 3 = 3F (13x23).
+* **Layer C is the walkability map** (cells = 2x2 per tile): low byte `0x3b`/`0x3d` solid, `1/2/3/4` wall on the top/right/bottom/left side, `5-8` corner posts, `0xc0`
+  (2F) / `0x00` (3F) floor, `0xd0` chest; high nibble = region (stairs halls, rooms). **Layer B holds markers**: `0xCA0n` room doors, `0x2800/01` stairs down,
+  `0x2802/03` stairs up, `0x2c0n` staffers, `0x2001` event lines, `0x0001` chests.
+* 2F: the south strip (rows 28-33) is open at cells (21,26)->(21,27); the mapper never probed it. West along row 31 (chest at (14-15,32-33)), past "Trish's Spring",
+  the up-stairs at (1,32-33) lead to 3F (state 5670; arrival scene with Yukino, "It's Eikichi. He's calling for us", 5681 = control after it). Climbing on foot works;
+  the earlier 3F crash only happens with a teleport warp.
+* The 2F "Staff Room" (door `0xCA05` at (32-33,27)) is event script 015 (masked guests, no box). The **3F Staff Room** (door at col 18, rows 32-33, east corridor:
+  walk (5,36)->(5,25)->(18,24)->(21,24)->(21,32), then UP into the door; state 5684) is script 016: walk to room (437,-578) (`P2_GOTO_INT=1 P2_GOTO_AXES=-1,1,1,1`
+  via (303,-209),(425,-209),(425,-590)), `DOWN+LEFT:3`, Cross -> "Obtained the Strange Mask" (flags 274 + 1319; state 5690).
+* With the mask, the 3F staffer at the "Secret Lounge" corridor (cell (12,17), north from (12,25)) says "Welcome to the wild dance, my brothers!" (states 5695/5696):
+  that is the real gate. The 2F staffer by the 1F stairs (cell (14,4)) keeps saying "Did you remember your mask? ... there should be extras somewhere" with the mask
+  too (state 5830): a hint, not a gate.
+* Tools: `P2_GOTO_TOL=<units>` (waypoint tolerance; with `P2_GOTO_INT=1` and the cell bytes, `P2_GOTO="8ceb2e0,8ceb2e0,8ceb2e4;col,row;..."`, tolerance 0.5 steers
+  cell by cell), `tools/cellwalk.py <chunk0.bin> <area> <from-slot> <col,row> <first-out-slot>` (plans on layer C, recalibrates the stick per leg, learns blocked steps;
+  took the party from the 2F strip to the staffer in 23 legs).

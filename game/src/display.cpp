@@ -187,6 +187,12 @@ float guest_float(u32 addr) {
 }
 // P2_GOTO_INT=1: the watched position words are int32 (indoor rooms: x at 08e44c14, z at 08e44c1c) and a waypoint counts as reached within 30 units.
 bool goto_int() { static const bool on = std::getenv("P2_GOTO_INT") != nullptr; return on; }
+// P2_GOTO_TOL=<units>: waypoint tolerance (default 30 with P2_GOTO_INT, 0.3 otherwise). With P2_GOTO_INT and the
+// dungeon cell bytes (x 08ceb2e0, z 08ceb2e4) and a tolerance of 0.5 the autopilot steers cell by cell.
+float goto_tol2() {
+    static const float t = [] { const char *e = std::getenv("P2_GOTO_TOL"); return e ? std::strtof(e, nullptr) : (goto_int() ? 30.f : 0.3f); }();
+    return t * t;
+}
 float goto_coord(u32 addr) { return goto_int() ? static_cast<float>(static_cast<s32>(mem().load32(addr))) : guest_float(addr); }
 
 u32 autopilot_buttons() {
@@ -198,7 +204,7 @@ u32 autopilot_buttons() {
     if ((g_kernel.vblank_count() & 7u) == 0u) LOG_I("goto", "at %.2f,%.2f -> %.2f,%.2f", x, z, tx, tz);
     const u64 now = g_kernel.vblank_count();
     if (a.since == 0u) a.since = now;
-    const bool reached = dx * dx + dz * dz < (goto_int() ? 900.f : 0.09f);
+    const bool reached = dx * dx + dz * dz < goto_tol2();
     // Unreachable targets (walls) are given up after 4 seconds.
     if (reached || now - a.since > (goto_int() ? 900u : 240u)) {
         LOG_I("goto", "%s waypoint %u (%.2f,%.2f)", reached ? "reached" : "gave up on", static_cast<unsigned>(a.next), x, z);
