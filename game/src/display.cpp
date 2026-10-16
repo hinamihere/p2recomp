@@ -262,6 +262,9 @@ u32 battle_taps(u64 now) {
 // Heuristic used by the exploration bot: battle and menu screens carry a red UI bar along the top (right of the
 // location banner) or red party panels along the bottom; the field view has neither.
 bool battle_like_screen() {
+    // P2_NO_BATTLE_DETECT=1: for the red-lit lounges of Zodiac, where the HUD/background is mostly red outside battles.
+    static const bool disabled = std::getenv("P2_NO_BATTLE_DETECT") != nullptr;
+    if (disabled) return false;
     auto red_fraction = [](int x0, int x1, int y0, int y1) {
         int red = 0, total = 0;
         for (int y = y0; y < y1; ++y)

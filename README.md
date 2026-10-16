@@ -342,3 +342,18 @@ Zodiac with the rumor "spread" (state 4040/4041, map analysis/maps/zod2.txt, 376
 "Emergency Exit" door (cells around (14,61), (20,69), (8,69)); Cross at them shows the "!" bubble but no dialogue box in my tour (the tool's DIALOGUE verdict there is the bubble, not a text box).
 The stairs (guide: "Upstairs" icons 1, 2, 7 on 1F) were not reached; the mapper (P2_MAPPER_EXIT=1) ran 500k vblanks without a floor change. Still unknown: whether the Emergency Exit is the way up and
 which facing/flag opens it (the tour presses Cross after facing the recorded direction only).
+
+### Zodiac: where the real dungeon is (user's IS guide + decoding)
+
+The user's Innocent Sin guide (Gamecoder FAQ) and a walkthrough say: the Club Zodiac scene ends *inside the club*; the dungeon proper ("1F") starts through **the door Michel ran through**
+(the club's far door, trigger `0x000d`); the 1F stairs are "in the N section", 2F is a maze with 9 item boxes (rumor only adds the boxes; it is not needed), the 3F staff room (east) holds the Strange Mask.
+Findings:
+* Both club doors are `op 0x51` warps whose arguments live in guest RAM (`0x09440f80` for `0x000d`, `0x09440f08` for DOA0 in state 3900): `(1, area, col, row, facing)`. Cell coordinates are in 256-unit cells:
+  `x = 256*col - 128`, `z = 256*row - 2613` (area 2 is the valid one). Poking them (`P2_POKE=<vblank>,9440f84,x2,9440f88,x<col>,9440f8c,x<row>,9440f90,x4`, then `DOWN+LEFT:500`, `CROSS` at the exit door of state 3900) **teleports the leader anywhere**.
+  Default target (col 8, row 47) is the hall in front of the club's front door (state 3922 = same place); (col 4, row 19) is inside the red lounge maze north of the club.
+* The north part of 1F is a red-lit maze of lounges. It is **not connected on foot** to the hall/ring component; the mapper maps 641 cells there (`analysis/maps/zod4.txt`, `P2_MAPPER` with `P2_NO_FLOOR=1`)
+  and 0 exits: the Auto Map (Square, pan with the D-pad, Triangle = legend) of that run shows no Upstairs icon, so the stairs are in another component.
+* `P2_NO_BATTLE_DETECT=1` is needed in the red lounges: the mapper/tour read the red HUD-less screen as a battle (the tour also takes the red lounge for a dialogue box).
+* F0098.BIN chunk 0 holds 3 areas (14x32, 25x25, 13x23; tools: `tools/p2lz.py`); area 1's layer 0 is a 14-wide tile grid (512 units/tile, row = (z+2613)/512): rows 23..31 are the hall/ring ("0x1xx" tiles),
+  rows 16..22 cols 2..7 the club block (`0x3b`), rows 0..15 the red maze (`0x32` floors). Layer 1 edge values `0xCA03` are the club doors, `0xCA04/0xCA05/0xCA06` the stair pairs (A1 rows 50/52, A2 (13,5),(21,8),(21,21), A3 (16,3),(16,10)).
+  The door/warp cells with `0xCA0n` are not yet located in raw coordinates; the Emergency Exit in the ring is only a "locked" text (DNGSCN chunk 13).
