@@ -439,3 +439,15 @@ to the corridor. Roof door = 4F `CC03` (10-11,20), 4F reached from the 3F east s
 `0x094ABD90`) this time (records 176 bytes: hp, hp, max hp, sp; the 6th = Yasuo, 735 HP); a one-shot `P2_POKE` at load+1 with 999/999 HP for the five
 party records and 1 HP for Yasuo, then Triangle (Auto) wins in one round (states 9911 = battle start, 9920 = Level Up screens). Level Up: RIGHT x9 then
 Cross per character.
+
+## Chapter 2 (after Kasugayama)
+
+After the roof boss: script 027 (King Leo), the gym aftermath (Maya: "ask people for rumors about the Masked Circle and Joker"), control on the
+Hirasaka town map (state 9950). Peace Diner (Yumezaki node 20 -> mall menu DOWN x2 -> Peace Diner): Chikarin stands at room (817,-662) after the
+first visit; walk to (790,-700) (axes UP = (+x,-z), RIGHT = (-x,-z)), face LEFT, Cross -> "Ask about rumors / Talk with Chikarin / Never mind";
+DOWN + Cross ("Talk") gives "maybe the fortune teller in Kounan would know" and sets flag 795 -> **Kounan** appears on the City Map (state 9996).
+Leaving a mall shop: walk onto the exit mat (600,-1254), Cross opens the mall menu, Circle returns to the town map. tools/settle.py closes dialogue
+until the leader can move.
+Kounan town map (City Map: DOWN from Yumezaki, Cross; wait ~300 vblanks before P2_MAPNAV, node type 0x11 = road + event bits, mapnav now accepts
+combined type bits): node 2 = Kounan PD, 7 = Abandoned Factory, 15 = (party comment), 19 = Seaside Mall (Jolly Roger, London Clothier, Satomi
+Tadashi, Hiiragi Psychotherapy, Sumaru Genie, Velvet Room), 23 = (party comment), 24 = Lunar Palace Kounan. States: 10008 = Kounan map.

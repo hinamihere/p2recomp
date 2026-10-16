@@ -477,7 +477,8 @@ u32 mapnav_buttons() {
     for (; count < 90; ++count) {
         const MapNode *n = node_at(count);
         const u8 t = n->type;
-        const bool known = t == 0x00 || t == 0x01 || t == 0x04 || t == 0x10 || t == 0x20 || t == 0x40;
+        // Types are bit flags (Kounan has 0x11 = road + event gate), so accept any combination of the known bits.
+        const bool known = (t & ~0x75u) == 0u;
         if (!known || n->x > 400 || n->y > 300) break;
     }
     if (target >= count) {
