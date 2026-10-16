@@ -19,8 +19,32 @@ maxsteps = int(sys.argv[7]) if len(sys.argv) > 7 else 80
 env = dict(os.environ, P2_EXE=EXE, P2_NO_ENCOUNTERS='1')
 for k in ('P2_GOTO', 'P2_GOTO_INT', 'P2_GOTO_TOL', 'P2_GOTO_AXES'):
     env.pop(k, None)
-DIRS = {'UP': (ux, uz), 'DOWN': (-ux, -uz), 'RIGHT': (rx, rz), 'LEFT': (-rx, -rz),
-        'UP+RIGHT': (ux + rx, uz + rz), 'UP+LEFT': (ux - rx, uz - rz), 'DOWN+RIGHT': (-ux + rx, -uz + rz), 'DOWN+LEFT': (-ux - rx, -uz - rz)}
+def dirs(ux, uz, rx, rz):
+    return {'UP': (ux, uz), 'DOWN': (-ux, -uz), 'RIGHT': (rx, rz), 'LEFT': (-rx, -rz),
+            'UP+RIGHT': (ux + rx, uz + rz), 'UP+LEFT': (ux - rx, uz - rz), 'DOWN+RIGHT': (-ux + rx, -uz + rz), 'DOWN+LEFT': (-ux - rx, -uz - rz)}
+
+
+DIRS = dirs(ux, uz, rx, rz)
+
+
+def calibrate(s):
+    """Probe UP and RIGHT (camera zones inside a room rotate the stick); returns the new direction table or None."""
+    global DIRS
+    x0, z0, _ = pos(s)
+    v = {}
+    for d in ('UP', 'RIGHT', 'DOWN', 'LEFT'):
+        nx, nz, _ = step(s, d, 10)
+        v[d] = (nx - x0, nz - z0)
+    up = v['UP'] if math.hypot(*v['UP']) > 15 else (-v['DOWN'][0], -v['DOWN'][1])
+    rt = v['RIGHT'] if math.hypot(*v['RIGHT']) > 15 else (-v['LEFT'][0], -v['LEFT'][1])
+    if math.hypot(*up) < 15 or math.hypot(*rt) < 15:
+        return None
+    sg = lambda a: (a > 0) - (a < 0)
+    up = (sg(up[0]) if abs(up[0]) > 15 else 0, sg(up[1]) if abs(up[1]) > 15 else 0)
+    rt = (sg(rt[0]) if abs(rt[0]) > 15 else 0, sg(rt[1]) if abs(rt[1]) > 15 else 0)
+    DIRS = dirs(up[0], up[1], rt[0], rt[1])
+    print('calibrated UP', up, 'RIGHT', rt, flush=True)
+    return DIRS
 
 
 def pos(s):
@@ -47,9 +71,15 @@ for it in range(maxsteps):
     if dist < tol or cell != (0, 0):
         break
     ranked = sorted(DIRS, key=lambda d: -(DIRS[d][0] * dx + DIRS[d][1] * dz) / math.hypot(*DIRS[d]) + 1e9 * blocked.get(d, 0))
-    moved = False
+    moved = recal = False
     for d in ranked[:5]:
         nx, nz, _ = step(cur, d)
+        if math.hypot(nx - x, nz - z) > 15 and (nx - x) * dx + (nz - z) * dz < 0:
+            # moved away from the goal: the camera zone changed the stick mapping
+            if calibrate(cur):
+                blocked = {}
+                recal = True
+                break
         if math.hypot(nx - x, nz - z) > 15:
             cur = dst
             # copy so the next step can read it while dst is rewritten
@@ -59,6 +89,8 @@ for it in range(maxsteps):
             blocked = {k: v - 1 for k, v in blocked.items() if v > 1}
             break
         blocked[d] = 3
+    if recal:
+        continue
     if not moved:
         print('stuck'); break
 print('final', pos(cur), 'slot', cur)

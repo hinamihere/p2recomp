@@ -429,3 +429,9 @@ Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st,
 * Mapper/cellwalk get stuck on corner posts and NPCs; the adaptive walker (tools/cellwalk.py) is slow (~10 min per maze half).
 **Shelter cleared (2026-10-16 night):** three bottom-room passes set 279; door 37 then ran script 022 (sleep), 023 (dream), 024 (quiz; a random
 Cross / DOWN+Cross pattern passes it since wrong answers only repeat) -> flags 280 + 281, control back in the B1F basement entry room (state 9163).
+Second visit (flag 281 -> the school is dungeon file **F0126**, the festival version; warp op arg 0 = 29): 1F west wing door `CC01` (2-3,20)
+(LEFT + Cross from (2,21)) = "Gym Entryway" room (axes UP = (-x,-z), RIGHT = (-x,+z)); the committee member KASU_A_1_c at room (1251,-834) gives the
+Masquerade Mask (face DOWN + Cross from (1174,-857), flag 1321; state 9421); warp2 quad x 797..998 z -165..-104 (push RIGHT) is the gym door (needs
+1321) -> script 025 (masquerade, shadowmen; sets 498; state 9450 = control in the gym, axes UP = (+x,+z), RIGHT = (+x,-z)); the gym exit quad is at
+x 173..415, z -2995..-2940 (DOWN+RIGHT) and returns to the entryway at (1008,-235); warp1 quad x 966..1105 z -1296..-1240 (DOWN+RIGHT) leads back
+to the corridor. Roof door = 4F `CC03` (10-11,20), 4F reached from the 3F east stairs (68,34-35).
