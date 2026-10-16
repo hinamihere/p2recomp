@@ -70,7 +70,7 @@ for it in range(maxsteps):
     print(f'at ({x},{z}) dist {dist:.0f}', flush=True)
     if dist < tol or cell != (0, 0):
         break
-    ranked = sorted(DIRS, key=lambda d: -(DIRS[d][0] * dx + DIRS[d][1] * dz) / math.hypot(*DIRS[d]) + 1e9 * blocked.get(d, 0))
+    ranked = sorted((d for d in DIRS if math.hypot(*DIRS[d]) > 0), key=lambda d: -(DIRS[d][0] * dx + DIRS[d][1] * dz) / math.hypot(*DIRS[d]) + 1e9 * blocked.get(d, 0))
     moved = recal = False
     for d in ranked[:5]:
         nx, nz, _ = step(cur, d)

@@ -43,11 +43,27 @@ def parse(R, base, A, hdr):
     return evscene.Script(bytes(p))
 
 
+def quads(R):
+    """Walk-in / Cross trigger quads of the resident room: 4 point pointers followed by an 8-byte tag
+    (label index, facing 0..255, 01 03 00 05 00 xx); points are i16 (x, y, z)."""
+    import re
+    out = []
+    for m in re.finditer(rb'[\x00-\x3f].\x01\x03\x00\x05\x00.', R[0x1000000:]):
+        a = 0x1000000 + m.start()
+        ptrs = struct.unpack_from('<4I', R, a - 16)
+        if all(0x08800000 <= p < 0x0A000000 for p in ptrs):
+            pts = [struct.unpack_from('<hhh', R, p - 0x08000000) for p in ptrs]
+            out.append((R[a], R[a + 1], pts))
+    return out
+
+
 def main():
     R = load(sys.argv[1])
     print('leader room pos', struct.unpack_from('<3i', R, 0xE44C14))
+    names = []
     for base, A, hdr in find_scripts(R):
         s = parse(R, base, A, hdr)
+        names = s.names
         print(f'script at {A:08x}: labels {s.names}')
         if len(sys.argv) > 3 and sys.argv[2] == 'dis':
             lab = {v: k for k, v in s.labels.items()}[sys.argv[3]]
@@ -68,6 +84,10 @@ def main():
             sets = [a[0] for op, a in s.ins[st:en] if op == 0x5e]
             if tests or sets:
                 print(f'  {s.labels[st]}: tests {tests} sets {sets}')
+    for lab, facing, pts in quads(R):
+        xs = [p[0] for p in pts]; zs = [p[2] for p in pts]
+        name = names[lab] if lab < len(names) else lab
+        print(f'  quad {name}: x {min(xs)}..{max(xs)} z {min(zs)}..{max(zs)} facing {facing * 360 // 256} deg')
 
 
 if __name__ == '__main__':

@@ -451,3 +451,11 @@ until the leader can move.
 Kounan town map (City Map: DOWN from Yumezaki, Cross; wait ~300 vblanks before P2_MAPNAV, node type 0x11 = road + event bits, mapnav now accepts
 combined type bits): node 2 = Kounan PD, 7 = Abandoned Factory, 15 = (party comment), 19 = Seaside Mall (Jolly Roger, London Clothier, Satomi
 Tadashi, Hiiragi Psychotherapy, Sumaru Genie, Velvet Room), 23 = (party comment), 24 = Lunar Palace Kounan. States: 10008 = Kounan map.
+Rumormonger chain (each "Talk with ..." sets one flag; facing matters, the talk menu is Ask about rumors / Talk / Never mind -> DOWN + Cross):
+Chikarin (Peace Diner, 795) -> "fortune teller in Kounan"; Kounan PD: Little Chii (CHIBOU, room (1097,-1291), UP+RIGHT + Cross from (1034,-1305))
+tells the Dresser Hag rumor (flags 800-803; returning the Hag's Dresser is a side quest, skipped); PD exit = walk into the quad x 603..801
+z -1583..-1517 facing DOWN. Kounan Seaside Mall (node 19) -> mall menu DOWN x2 = Sumaru Genie: walk to the fortune table (514,-449), face LEFT,
+Cross -> the Genie (sets 797) -> "the man at Honmaru Park". Rengedai Honmaru Park (node 17; a student scene plays on entry, flag 798): Toku-san
+(BLOCK_TOKSAN, room (1343,-1012)): from (1406,-1004) face DOWN+LEFT, Cross, Talk -> 794 -> "ask the salesman at the sushi restaurant".
+tools/mallexit.py leaves a shop from its exit mat (Cross opens the mall menu, Circle -> town map; detects the node-table pointer change);
+tools/roomscript.py now also lists the room's trigger quads (label, x/z box, facing).
