@@ -18,7 +18,9 @@ offs = struct.unpack_from('<7I', d, o + 12)
 W, H = 2 * w, 2 * h
 B = [struct.unpack_from('<H', d, offs[1] + 2 * i)[0] for i in range(W * H)]
 C = [struct.unpack_from('<H', d, offs[2] + 2 * i)[0] & 0xFF for i in range(W * H)]
-solid = lambda c, r: not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3B, 0x3D) or B[r * W + c] >> 8 == 0x28
+EDGES = os.environ.get('P2_CELLWALK_EDGES_SOLID') == '1'
+solid = lambda c, r: (not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3B, 0x3D) or B[r * W + c] >> 8 == 0x28
+                      or (EDGES and 1 <= C[r * W + c] <= 4))
 stairs = {}
 for i, v in enumerate(B):
     if v >> 8 == 0x28:
@@ -43,8 +45,11 @@ for sid, cells in sorted(stairs.items()):
     if only and sid not in only:
         continue
     goal = None
+    # a horizontal pair (same row) is entered from above/below, a vertical pair from the left/right
+    horiz = len(cells) > 1 and cells[0][1] == cells[1][1]
+    dirs = ((0, 1, '-row'), (0, -1, '+row'), (1, 0, '-col'), (-1, 0, '+col')) if horiz else            ((1, 0, '-col'), (-1, 0, '+col'), (0, 1, '-row'), (0, -1, '+row'))
     for (c, r) in cells:
-        for dc, dr, push in ((1, 0, '-col'), (-1, 0, '+col'), (0, 1, '-row'), (0, -1, '+row')):
+        for dc, dr, push in dirs:
             n = (c + dc, r + dr)
             if not solid(*n):
                 goal, direction = n, push

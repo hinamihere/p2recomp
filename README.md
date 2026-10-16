@@ -474,3 +474,9 @@ The south half of 1F is split into a left and a right region by the wall at cols
 walkable there (only the gaps cols 5-10 and 21-26). tools/stairmap.py tries a floor's staircases and records the landing floor/cell.
 Travel: tools/travel.sh now takes <from-district> <to-district> (the City Map list wraps around and starts on the current district).
 tools/shopexit.sh leaves a shop through its warp1 quad.
+**Mu stair route (found with tools/stairmap.py, `P2_CELLWALK_EDGES_SOLID=1`):** 1F entrance (14,17) -> stairs 2804 (27,2-3) -> 2F (23,2) ->
+281c (21,28-29) -> 1F right-south room (22,26) -> 280c (22,40-41) -> 2F (26,40) -> 281a (10,28-29) -> 1F left-south room (9,26) ->
+280a (9,40-41) -> 2F (5,40) -> 281e (2-3,37) -> 3F (2,33) -> 282e (12-13,27) -> 2F central column (12,23) -> 2812 (12-13,11) -> 3F (12,7) ->
+2834 (19,40-41) -> 4F (15,40) -> walk to (18,21), push DOWN into door C838 = Video Game Room -> script 029 (Muses shoot, Lisa), flag **285**
+(state 12470). Dead ends: 2802 -> 2F top-left -> 2816 -> 3F (4,26); 2814 -> 3F (19,16) -> 2830 -> 4F right region (no way to the door).
+The 1F south rooms are walled off from the entrance by a rail (cells with C low byte 0xb5-0xb8 in row 24) and are reached from 2F.

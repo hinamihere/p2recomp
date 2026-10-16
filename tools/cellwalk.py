@@ -5,6 +5,7 @@ steps the layer does not show (corner posts, NPCs) and replans.
 
 usage: cellwalk.py <chunk0.bin> <area> <from-slot> <goal col,row> <first-out-slot>
 Layer C: low byte 0x3b/0x3d solid, 1/2/3/4 = wall on the top/right/bottom/left side, 5-8 corner posts, else floor.
+P2_CELLWALK_EDGES_SOLID=1 makes the types 1-4 solid cells (needed in Mu, F0101).
 Writes one savestate per leg (from <first-out-slot> up; slot 5799 is scratch) and prints the final slot."""
 import collections, os, struct, subprocess, sys
 ROOT = os.getcwd()
@@ -13,7 +14,10 @@ d = open(chunk, 'rb').read()
 o = 0x34 + 40 * area; w, h = struct.unpack_from('<HH', d, o); offs = struct.unpack_from('<7I', d, o + 12)
 W, H = 2 * w, 2 * h
 C = [struct.unpack_from('<H', d, offs[2] + 2 * i)[0] & 0xff for i in range(W * H)]
-solid = lambda c, r: not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3b, 0x3d)
+# P2_CELLWALK_EDGES_SOLID=1: treat the wall-edge cell types 1-4 as solid (Mu draws whole wall cells with them; the school's
+# corridors use them as one-sided edges, the default).
+EDGES_SOLID = os.environ.get('P2_CELLWALK_EDGES_SOLID') == '1'
+solid = lambda c, r: not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3b, 0x3d) or (EDGES_SOLID and 1 <= C[r * W + c] <= 4)
 wall = lambda c, r, side: C[r * W + c] == side
 moves = [((0, -1), 1, 3), ((1, 0), 2, 4), ((0, 1), 3, 1), ((-1, 0), 4, 2)]
 blocked = set()
