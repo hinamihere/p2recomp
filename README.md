@@ -299,3 +299,12 @@ Later-story check by selector remap: with the party on a Yumezaki place node tha
 which runs event script 014: the Zodiac club scene (dance floor with crowd animation, Noriko, Anna Yoshizaka, Eikichi; "We got a new Leader!"). It plays correctly through the first 100 Cross presses.
 Open question: how Peace Diner (Ginko/Yukino's stated next stop after the Clock Tower) is entered - it is not one of the type-04 place nodes of Rengedai, Yumezaki or Hirasaka, and Kasugayama High
 (Hirasaka node 16) shows no IN marker yet, so some flag or visit gates it.
+
+### Peace Diner (found with the user's hint) and the Zodiac lead
+
+Peace Diner is inside Yumezaki Center (Yumezaki node 20, type 04): the cursor has to sit exactly on the node (`node=20` in the cursor struct, ix,iy = 237,83); `P2_MAPNAV` now
+keeps pressing along the last edge until the game puts the cursor on the node (it logs "cursor not on the node" otherwise). Cross there opens the "Shopping Mall: Please select a destination"
+menu (Tony's Shop, Anima Mundi, Satomi Tadashi, Bikini Line, Peace Diner, Velvet Room, price list ¥17,480 shown); DOWN x2 then Cross picks Peace Diner. The diner scene plays fully (counter,
+Ru, Eikichi vs Ginko about the Cuss High rumour, Yukino: "Let's just go to Zodiac and learn the truth for ourselves") and returns control in the diner (state 3800 = 3713).
+Recipe: `P2_MAPNAV=20,3440` from state 3400, then `CROSS`, wait ~120 vblanks, `DOWN, DOWN`, `CROSS`, then Cross every 45 vblanks.
+The next lead is therefore Zodiac (Yumezaki node 6 or the place between it and Pachinko Silver), whose door scene is script 014 once the flags are right.

@@ -548,8 +548,18 @@ u32 mapnav_buttons() {
     };
 
     if (here >= 0) {
+        if (here == target && cur.node != target && edge != nullptr) {
+            // at the end of the edge but the game has not put the cursor on the node yet: keep pressing along the edge a little longer
+            static u64 settle_since = 0;
+            if (settle_since == 0) settle_since = now;
+            if (now - settle_since < 90u) {
+                const s32 into = (cur.progress == 0u) ? edge->angle : edge->angle + 2048;
+                return dirs[static_cast<std::size_t>(stick_toward(into))];
+            }
+        }
         if (here == target) {
-            LOG_I("mapnav", "arrived at node %d (%d,%d) vblank %llu", here, cur.ix, cur.iy, static_cast<unsigned long long>(now));
+            LOG_I("mapnav", "arrived at node %d (%d,%d) vblank %llu%s", here, cur.ix, cur.iy, static_cast<unsigned long long>(now),
+                  cur.node == target ? "" : " (cursor not on the node)");
             done = true;
             if (save_slot >= 0) savestate_request_save(save_slot);
             return 0u;
