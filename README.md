@@ -419,3 +419,11 @@ CHECK segment sets flags 486 -> 487 -> **279**; the top room's CHECK sets 493 ->
 UP = (+x,+z), RIGHT = (+x,-z); F0100 like the school. b_032 (flag 279 -> script 022, the sleep scene) is the bottom doors' selector.
 tools/shelterloop.sh runs one circuit (cellwalk halves, doorpush, Cross through the room scene, tools/roomwalk.py slides along beams to the exit quad).
 Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st, 2nd (from the bytecode's repeat branches).
+
+## Open problems (remind the user of these at the start of the next session)
+
+* Kasugayama 2F Student Council Room: the "Earnest student" talk that sets flag 278 was never triggered by Cross (the NPC at room (189,-227) only
+  gave the Glib student's line); flag 278 was forced with `tools/setflags.py` (state 6510). Find the real trigger (facing/position) some time.
+* Dungeon doors need Cross from the adjacent cell, and the door-id -> branch.bin selector mapping is per floor and not linear (2F `C809` -> b_022,
+  3F `C809` -> b_025, B1F `CC03` -> b_028); only IO traces resolve it so far.
+* Mapper/cellwalk get stuck on corner posts and NPCs; the adaptive walker (tools/cellwalk.py) is slow (~10 min per maze half).
