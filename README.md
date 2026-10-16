@@ -325,3 +325,15 @@ Zodiac's 1F is `F0098.BIN` (area 14x32 tiles; the lower 7 rows are the corridor 
 Script 15 (Ginko/Maya/Yukino about the secret lounge, masked guests; tests flag 1146) and script 18 (Hiroki Sugimoto the Leader, Eikichi, Kozy = Miyabi Hanakouji; sets 275, 276, 1097) and 19 (Eikichi's change of heart) are the next beats.
 The club room itself (script 014 package, part 7 triggers): the entrance door quad DOA0 at x 10..60, z -300..-200 and the exit-to-corridor door `0x000d` at x 300..400, z -1390..-1330 (DOWN+LEFT from the start state walks straight into it),
 both warp back to the dungeon; the room axes here: UP = (-x,+z), DOWN+LEFT = -z, UP+RIGHT = +z, RIGHT = +x/+z.
+
+### Spreading the "Zodiac second floor" rumor (needed before Zodiac's real dungeon)
+
+The rumor system (Innocent Sin): the Kuzunoha Detective Agency's Chief Todoroki spreads rumors you have collected. Route: Hirasaka node 0 "Kameya Alley" (a Shopping Mall: Shiraishi Ramen, Toua Defense,
+Satomi Tadashi, Tominaga Chiropractic, Gatten Sushi, Kuzunoha Detective Agency, Velvet Room); Kuzunoha Detective Agency opens the agency room (script 319/320/321 family, desk quad "DESK"): in the
+room the desk is at about x 115, z -920 (room units; leader position = i32 at `0x08e44c14` / `0x08e44c1c`). `P2_GOTO_INT=1 P2_GOTO_AXES=-1,-1,-1,1 P2_GOTO="8e44c14,8e44c18,8e44c1c;300,-1250;115,-1250;115,-920"`
+walks there from the entrance (state 4000), then `UP:6` + Cross opens the Chief's menu: Spread rumors / Check rumors / Talk with the Chief / Cancel / Leave. "Spread rumors" lists
+"Zodiac's second floor... Zodiac's second floor is a huge maze." (3,000 yen); Confirm, Yes. The rumor enters the list after the Zodiac club scene (flag 1145 set by script 014) and after a rumormonger hears
+it - in my run flag 1145 was poked/forced, see below. States: 4006 (at the desk), 4009 (after spreading, 14,480 yen left), 4035 (Zodiac exit entrance, rumor spread).
+`P2_GOTO_INT=1` makes the goto autopilot read int32 room coordinates (30-unit tolerance, 15 s timeout).
+`tools/placeblobs.py <town slot> <nodes>` prints the branch.bin blob (door selector) every place node reads.
+Peace Diner (inside Yumezaki Center): after the Zodiac club scene, Chikarin and Kozy's friends say Kozy "went to infiltrate" Zodiac; the scene with Eikichi and "Let's just go to Zodiac" is script 342.

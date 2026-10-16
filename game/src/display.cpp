@@ -185,19 +185,22 @@ float guest_float(u32 addr) {
     std::memcpy(&f, &bits, 4);
     return f;
 }
+// P2_GOTO_INT=1: the watched position words are int32 (indoor rooms: x at 08e44c14, z at 08e44c1c) and a waypoint counts as reached within 30 units.
+bool goto_int() { static const bool on = std::getenv("P2_GOTO_INT") != nullptr; return on; }
+float goto_coord(u32 addr) { return goto_int() ? static_cast<float>(static_cast<s32>(mem().load32(addr))) : guest_float(addr); }
 
 u32 autopilot_buttons() {
     Autopilot &a = autopilot();
     if (!a.on || a.next >= a.points.size()) return 0u;
-    const float x = guest_float(a.px), z = guest_float(a.pz);
+    const float x = goto_coord(a.px), z = goto_coord(a.pz);
     const auto [tx, tz] = a.points[a.next];
     const float dx = tx - x, dz = tz - z;
     if ((g_kernel.vblank_count() & 7u) == 0u) LOG_I("goto", "at %.2f,%.2f -> %.2f,%.2f", x, z, tx, tz);
     const u64 now = g_kernel.vblank_count();
     if (a.since == 0u) a.since = now;
-    const bool reached = dx * dx + dz * dz < 0.09f;
+    const bool reached = dx * dx + dz * dz < (goto_int() ? 900.f : 0.09f);
     // Unreachable targets (walls) are given up after 4 seconds.
-    if (reached || now - a.since > 240u) {
+    if (reached || now - a.since > (goto_int() ? 900u : 240u)) {
         LOG_I("goto", "%s waypoint %u (%.2f,%.2f)", reached ? "reached" : "gave up on", static_cast<unsigned>(a.next), x, z);
         ++a.next;
         a.since = now;
