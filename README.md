@@ -480,3 +480,7 @@ tools/shopexit.sh leaves a shop through its warp1 quad.
 2834 (19,40-41) -> 4F (15,40) -> walk to (18,21), push DOWN into door C838 = Video Game Room -> script 029 (Muses shoot, Lisa), flag **285**
 (state 12470). Dead ends: 2802 -> 2F top-left -> 2816 -> 3F (4,26); 2814 -> 3F (19,16) -> 2830 -> 4F right region (no way to the door).
 The 1F south rooms are walled off from the entrance by a rail (cells with C low byte 0xb5-0xb8 in row 24) and are reached from 2F.
+After Mu: script 029 ends with "Let's head for Giga Macho" (Mami and Miho's live radio show). Giga Macho = Yumezaki node 10, dungeon file
+**F0102** (4 floors, 20x20 tiles; 1F stairs 2800 (26,2) -> 2F (34,2); floors 2-3 have stairs at (26,2-3) and (33,2-3); 4F has the door
+`C801` (18-23,33) and staff 2c00 (26,26)). The floors are store-shelf mazes: the shelves are props, not in layer C, so the cell walker cannot
+plan there; the probing mapper (`P2_MAPPER`, floor-aware) is used instead (analysis/maps/giga.txt).
