@@ -294,3 +294,8 @@ Place nodes (type 04) found: Rengedai: Silverman Manor (node 3), Lotus (6); Yume
 no entry marker yet), GOLD (23); Hirasaka: Kameya Alley (0), Sumaru Prison (4), Sakanoue Building (7), Smile Hirasaka (9, Yukino: "weren't we supposed to be going to Peace Diner?"), node 16.
 Type 40/10 nodes with a "!" bubble are townspeople (Cross shows their talk text). Peace Diner (Kozy's scene, script 013 end) is not one of the type-04 place nodes of the three districts; it
 probably appears through a flag or from the "Theater" entry of the City Map. Savestates: 3400 (Yumezaki map), 3300 (Rengedai map), 3490 (Hirasaka map).
+
+Later-story check by selector remap: with the party on a Yumezaki place node that has an IN marker (state 3439 = Mu Casino), `P2_IO_REMAP=220565504,220516352` makes the place read the selector of blob 14,
+which runs event script 014: the Zodiac club scene (dance floor with crowd animation, Noriko, Anna Yoshizaka, Eikichi; "We got a new Leader!"). It plays correctly through the first 100 Cross presses.
+Open question: how Peace Diner (Ginko/Yukino's stated next stop after the Clock Tower) is entered - it is not one of the type-04 place nodes of Rengedai, Yumezaki or Hirasaka, and Kasugayama High
+(Hirasaka node 16) shows no IN marker yet, so some flag or visit gates it.
