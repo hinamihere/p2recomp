@@ -267,3 +267,17 @@ party at about Lv 4: the hero starts the fight at 1 HP. A battle-time cheat that
 `P2_POKE=<vblank>,98eab00,x03e703e7,...` (hex address, raw 32-bit word with `x`) written a few vblanks after the battle state loads gives the party
 999 HP and Hanya's record (the sixth, at `0x098eaa50 + 5*176`) 1 HP. The level-up screens take 9 distribution points per character
 (RIGHT x9 then Cross). Savestates from this run: 3100 (tower loading), 3102 (battle command menu), 3111 / 3200 (after the boss, tower corridor).
+
+### Leaving the school (1F) and the way down from the Clock Tower
+
+After the boss (state 3200) the party is on 4F at the "Stairs" landing; walking RIGHT goes down to the 3F landing (position resets to (12598, 6530)).
+On 3F: LEFT:200 then DOWN:600 follows the spur and main corridor east; UP:168 from the east end, then the stair spur at x~19846 is the 3F-2F flight
+(the mapper walks it by itself: starting it on 3F with `P2_MAPPER_EXIT=1` carried the party down to the 1F "Stairs" landing, state 930).
+1F frame (positions are continuous across the floor): from the stair landing (3894, 7618) DOWN walks east along the main corridor (z 6898..7570);
+at x ~12918, RIGHT turns into the "Courtyard" corridor (z 5746..6370, west end is a window wall at x 11814); from (11814, 6370) `LEFT:600` runs
+south along a passage (x ~11958) across the main corridor to z 9634 = "Seven Sisters High: Entrance Hall", where the two Exit icons are right in front of the
+party; Cross there shows the loading screen and the Rengedai town map (the party marker sits on "Seven Sisters High"). Shortest recipe from the 1F main
+corridor at x=15798 (state 942): `UP:120`, `RIGHT:500`, `LEFT:26`, `UP:200`, `LEFT:600`, `CROSS`. The Auto Map (Square) on 1F shows the 3 pairs of Exit
+icons at the south end of the explored map once the hall has been visited. States: 930 (1F stair landing), 942 (1F corridor), 948 (Courtyard west end),
+949 (Entrance Hall), 950/3300 (town map after leaving, 5-member party, all clock/boss flags set).
+`P2_WATCH_HEX=1` prints each watched word as `value/hex`; `P2_NO_FLOOR=1` makes the mapper/tour ignore the floor byte; `P2_FRAMES_DIR=<relative dir>` redirects frame dumps.
