@@ -435,3 +435,7 @@ Masquerade Mask (face DOWN + Cross from (1174,-857), flag 1321; state 9421); war
 1321) -> script 025 (masquerade, shadowmen; sets 498; state 9450 = control in the gym, axes UP = (+x,+z), RIGHT = (+x,-z)); the gym exit quad is at
 x 173..415, z -2995..-2940 (DOWN+RIGHT) and returns to the entryway at (1008,-235); warp1 quad x 966..1105 z -1296..-1240 (DOWN+RIGHT) leads back
 to the corridor. Roof door = 4F `CC03` (10-11,20), 4F reached from the 3F east stairs (68,34-35).
+**Kasugayama cleared (2026-10-17 early):** roof door -> script 026 (Yasuo) -> boss fight. The battle party table sits at `0x094AB290` (+ copy at
+`0x094ABD90`) this time (records 176 bytes: hp, hp, max hp, sp; the 6th = Yasuo, 735 HP); a one-shot `P2_POKE` at load+1 with 999/999 HP for the five
+party records and 1 HP for Yasuo, then Triangle (Auto) wins in one round (states 9911 = battle start, 9920 = Level Up screens). Level Up: RIGHT x9 then
+Cross per character.
