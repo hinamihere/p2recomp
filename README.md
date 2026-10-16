@@ -337,3 +337,8 @@ it - in my run flag 1145 was poked/forced, see below. States: 4006 (at the desk)
 `P2_GOTO_INT=1` makes the goto autopilot read int32 room coordinates (30-unit tolerance, 15 s timeout).
 `tools/placeblobs.py <town slot> <nodes>` prints the branch.bin blob (door selector) every place node reads.
 Peace Diner (inside Yumezaki Center): after the Zodiac club scene, Chikarin and Kozy's friends say Kozy "went to infiltrate" Zodiac; the scene with Eikichi and "Let's just go to Zodiac" is script 342.
+
+Zodiac with the rumor "spread" (state 4040/4041, map analysis/maps/zod2.txt, 376 cells in the ring corridor, `Zodiac: Exit` entrance): the ring now contains the storefronts "Cafe", "Home Goods Store" and an
+"Emergency Exit" door (cells around (14,61), (20,69), (8,69)); Cross at them shows the "!" bubble but no dialogue box in my tour (the tool's DIALOGUE verdict there is the bubble, not a text box).
+The stairs (guide: "Upstairs" icons 1, 2, 7 on 1F) were not reached; the mapper (P2_MAPPER_EXIT=1) ran 500k vblanks without a floor change. Still unknown: whether the Emergency Exit is the way up and
+which facing/flag opens it (the tour presses Cross after facing the recorded direction only).
