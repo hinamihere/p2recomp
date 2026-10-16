@@ -3,6 +3,7 @@
 // guesses from reading the code: the game ships without symbols.
 #include "native.hpp"
 #include "kernel.hpp"
+#include "savestate.hpp"
 
 #include <array>
 #include <cstdlib>
@@ -231,31 +232,9 @@ Global<u32, 0x08E44514> g_map_edges_ptr;
 Global<MapCursor, 0x08E444F8> g_map_cursor;
 Global<u16, 0x08E43578> g_map_cursor_idle;
 
-// 0889E76C: the cursor stands on a node and the stick points somewhere: pick the edge to walk. Of the node's
-// four edges the one whose angle is closest to the stick's heading is chosen, if it lies inside that
-// direction's window; the cursor then leaves the node along it.
-void map_cursor_pick_edge(u32 stick) {
-    u32 dir = stick & 0xFF;
-    if ((dir & PAD_UP) && (dir & PAD_DOWN)) dir &= 0xBF;  // up+down: up wins
-    if ((dir & PAD_RIGHT) && (dir & PAD_LEFT)) dir &= 0x7F; // right+left: right wins
-
-    MapCursor &cursor = g_map_cursor;
-    if (cursor.node == 0xFF) return; // already travelling
-
-    const auto &dirs = g_stick_dirs.get();
-    int index = 0;
-    while (index < 8 && dirs[index] != dir) ++index;
-    if (index == 8) return; // not one of the eight stick directions
-
-    // Pressing towards the opposite of the previous move only counts if that opposite was already part of
-    // the recent history; then it is taken as the heading instead of the stick's own direction.
-    const auto &history = g_dir_history.get();
-    u32 opposite = (history[3] + 2u) & 0xFF;
-    if (opposite >= 4) opposite &= 1;
-    if ((dir & dirs[opposite]) && (history[0] == opposite || history[1] == opposite || history[2] == opposite))
-        index = static_cast<int>(opposite);
-
-    const MapNode &node = *guest<MapNode>(g_map_nodes_ptr + cursor.node * sizeof(MapNode));
+// The edge slot of `node` that stick direction `index` (0..7, as in g_stick_dirs) selects, or -1 if none lies
+// inside that direction's window.
+int pick_slot(const MapNode &node, int index) {
     auto edge_entry = [](u32 id) { return guest<MapEdge>(g_map_edges_ptr + id * sizeof(MapEdge)); };
 
     // Heading of each outgoing edge, away from this node (-1 where the slot is empty).
@@ -297,10 +276,41 @@ void map_cursor_pick_edge(u32 stick) {
     const int slot = best_distance[1] < best_distance[0] ? best_slot[1] : best_slot[0];
     const s32 angle = heading[slot];
     const bool inside = (angle >= window.w[0] && angle < window.w[1]) || (angle >= window.w[2] && angle < window.w[3]);
+    if (!inside || node.edges[slot] == 0xFF) return -1;
+    return slot;
+}
+
+// 0889E76C: the cursor stands on a node and the stick points somewhere: pick the edge to walk. Of the node's
+// four edges the one whose angle is closest to the stick's heading is chosen, if it lies inside that
+// direction's window; the cursor then leaves the node along it.
+void map_cursor_pick_edge(u32 stick) {
+    u32 dir = stick & 0xFF;
+    if ((dir & PAD_UP) && (dir & PAD_DOWN)) dir &= 0xBF;  // up+down: up wins
+    if ((dir & PAD_RIGHT) && (dir & PAD_LEFT)) dir &= 0x7F; // right+left: right wins
+
+    MapCursor &cursor = g_map_cursor;
+    if (cursor.node == 0xFF) return; // already travelling
+
+    const auto &dirs = g_stick_dirs.get();
+    int index = 0;
+    while (index < 8 && dirs[index] != dir) ++index;
+    if (index == 8) return; // not one of the eight stick directions
+
+    // Pressing towards the opposite of the previous move only counts if that opposite was already part of
+    // the recent history; then it is taken as the heading instead of the stick's own direction.
+    const auto &history = g_dir_history.get();
+    u32 opposite = (history[3] + 2u) & 0xFF;
+    if (opposite >= 4) opposite &= 1;
+    if ((dir & dirs[opposite]) && (history[0] == opposite || history[1] == opposite || history[2] == opposite))
+        index = static_cast<int>(opposite);
+
+    const MapNode &node = *guest<MapNode>(g_map_nodes_ptr + cursor.node * sizeof(MapNode));
+    const int slot = pick_slot(node, index);
+    if (slot < 0) return;
     const u8 chosen = node.edges[slot];
-    if (!inside || chosen == 0xFF) return;
 
     // Leave the node: progress counts from node_b, so an edge listed without the flag starts at full length.
+    auto edge_entry = [](u32 id) { return guest<MapEdge>(g_map_edges_ptr + id * sizeof(MapEdge)); };
     cursor.progress = (chosen & 0x80) ? 0u : static_cast<u32>(edge_entry(chosen)->length) << 12;
     cursor.node = 0xFF;
     cursor.edge = chosen & 0x7F;
@@ -435,6 +445,148 @@ void native_fuzz_setup(u32 address, std::mt19937 &rng, AllegrexContext &c) {
         break;
     default: break;
     }
+}
+
+// P2_MAPNAV=<node>[,<save-slot>]: town-map navigator. Reads the node graph, plans a shortest path from the
+// cursor to node <node> and presses the stick direction that makes the game pick the next edge at every
+// junction; holds it while the cursor walks the (straight) edge. When it arrives it logs the node and,
+// with a slot, requests a savestate. Used to reach a place node (type 04) on a town map unattended.
+u32 mapnav_buttons() {
+    using namespace game;
+    static const char *env = std::getenv("P2_MAPNAV");
+    if (env == nullptr) return 0u;
+    static int target = -1, save_slot = -1;
+    static bool done = false;
+    static int held = -1;       // stick index being held
+    static int walking_to = -1; // node we are heading for on the current edge
+    static u32 last_ix = 0, last_iy = 0;
+    static u64 last_move = 0;
+    static int stall_cycle = 0;
+    if (target < 0) {
+        char *end = nullptr;
+        target = static_cast<int>(std::strtol(env, &end, 10));
+        if (end != nullptr && *end == ',') save_slot = std::atoi(end + 1);
+        LOG_I("mapnav", "target node %d, save slot %d", target, save_slot);
+    }
+    if (done || g_map_nodes_ptr == 0u || g_map_edges_ptr == 0u) return 0u;
+    const u64 now = g_kernel.vblank_count();
+
+    // Number of valid nodes: stop at the first with an impossible position or type.
+    int count = 0;
+    auto node_at = [](int i) { return guest<MapNode>(g_map_nodes_ptr + static_cast<u32>(i) * sizeof(MapNode)); };
+    for (; count < 90; ++count) {
+        const MapNode *n = node_at(count);
+        const u8 t = n->type;
+        const bool known = t == 0x00 || t == 0x01 || t == 0x04 || t == 0x10 || t == 0x20 || t == 0x40;
+        if (!known || n->x > 400 || n->y > 300) break;
+    }
+    if (target >= count) {
+        LOG_E("mapnav", "target %d outside the %d nodes", target, count);
+        done = true;
+        return 0u;
+    }
+
+    const MapCursor &cur = g_map_cursor;
+    auto other_end = [&](u8 id, int from) -> int {
+        const MapEdge *e = guest<MapEdge>(g_map_edges_ptr + static_cast<u32>(id & 0x7F) * sizeof(MapEdge));
+        return (id & 0x80) ? e->node_a : (e->node_b == from ? e->node_a : e->node_b);
+    };
+    // Distance (in edges) from every node to the target.
+    std::array<int, 90> dist;
+    dist.fill(1000);
+    dist[static_cast<std::size_t>(target)] = 0;
+    for (int pass = 0; pass < count; ++pass)
+        for (int i = 0; i < count; ++i)
+            for (int k = 0; k < 4; ++k) {
+                const u8 id = node_at(i)->edges[k];
+                if (id == 0xFF) continue;
+                const int j = other_end(id, i);
+                if (j < count && dist[static_cast<std::size_t>(j)] + 1 < dist[static_cast<std::size_t>(i)])
+                    dist[static_cast<std::size_t>(i)] = dist[static_cast<std::size_t>(j)] + 1;
+            }
+
+    static constexpr s32 kStickHeading[8] = {1024, 0, 3072, 2048, 512, 3584, 2560, 1536};
+    auto stick_toward = [&](s32 angle) {
+        int best = 0;
+        s32 best_d = 1 << 20;
+        for (int i = 0; i < 8; ++i) {
+            const s32 d = std::abs(((angle - kStickHeading[i]) % 4096 + 4096 + 2048) % 4096 - 2048);
+            if (d < best_d) { best_d = d; best = i; }
+        }
+        return best;
+    };
+    const auto &dirs = g_stick_dirs.get();
+
+    if (cur.ix != static_cast<s32>(last_ix) || cur.iy != static_cast<s32>(last_iy)) {
+        last_ix = static_cast<u32>(cur.ix);
+        last_iy = static_cast<u32>(cur.iy);
+        last_move = now;
+    }
+
+    // Where are we? On a node (cursor.node), or at an end of the edge being walked (the game keeps node = 0xFF
+    // there when the node has just two edges and the walk simply continues), or in the middle of an edge.
+    int here = cur.node != 0xFF ? cur.node : -1;
+    const MapEdge *edge = cur.node != 0xFF ? nullptr : guest<MapEdge>(g_map_edges_ptr + static_cast<u32>(cur.edge) * sizeof(MapEdge));
+    if (here < 0) {
+        if (cur.progress == 0u) here = edge->node_b;
+        else if (cur.progress >= (static_cast<u32>(edge->length) << 12)) here = edge->node_a;
+    }
+    static u64 pause_until = 0;
+    if (now < pause_until) return 0u;
+    if (now - last_move > 30u) { // not moving although the stick is held: let go for a few frames, then try another direction
+        pause_until = now + 10u;
+        last_move = pause_until;
+        ++stall_cycle;
+        LOG_I("mapnav", "stalled at (%d,%d) node %d, cycle %d", cur.ix, cur.iy, here, stall_cycle);
+        return 0u;
+    }
+    static u64 last_log = 0;
+    auto log_state = [&](const char *what) {
+        if (now - last_log < 60u) return;
+        last_log = now;
+        LOG_I("mapnav", "%s at (%d,%d) node %d, stick %d, progress %u", what, cur.ix, cur.iy, here, held, static_cast<unsigned>(cur.progress));
+    };
+
+    if (here >= 0) {
+        if (here == target) {
+            LOG_I("mapnav", "arrived at node %d (%d,%d) vblank %llu", here, cur.ix, cur.iy, static_cast<unsigned long long>(now));
+            done = true;
+            if (save_slot >= 0) savestate_request_save(save_slot);
+            return 0u;
+        }
+        const MapNode &node = *node_at(here);
+        int want_slot = -1, best = 1000;
+        for (int k = 0; k < 4; ++k) {
+            const u8 id = node.edges[k];
+            if (id == 0xFF) continue;
+            const int j = other_end(id, here);
+            if (j < count && dist[static_cast<std::size_t>(j)] < best) {
+                best = dist[static_cast<std::size_t>(j)];
+                want_slot = k;
+                walking_to = j;
+            }
+        }
+        if (want_slot < 0) {
+            LOG_E("mapnav", "no route from node %d", here);
+            done = true;
+            return 0u;
+        }
+        // Which stick direction makes the game take that slot? Rotate the start of the search while stalled.
+        held = -1;
+        for (int n = 0; n < 8; ++n) {
+            const int index = (n + stall_cycle) % 8;
+            if (pick_slot(node, index) == want_slot) { held = index; break; }
+        }
+        if (held < 0) held = 0;
+        log_state("at node");
+        return dirs[static_cast<std::size_t>(held)];
+    }
+    // In the middle of an edge: walk to the end nearer the target.
+    walking_to = dist[edge->node_a] <= dist[edge->node_b] ? edge->node_a : edge->node_b;
+    const s32 tangent = (walking_to == edge->node_b) ? edge->angle : edge->angle + 2048;
+    held = stick_toward(tangent);
+    log_state("on edge");
+    return dirs[static_cast<std::size_t>(held)];
 }
 
 } // namespace p2

@@ -25,6 +25,7 @@
 #include <vector>
 
 namespace p2 {
+u32 mapnav_buttons(); // native_funcs.cpp: P2_MAPNAV town-map navigator
 namespace {
 
 Kernel &K = g_kernel;
@@ -1237,7 +1238,7 @@ u32 tour_buttons() {
 
 u32 scripted_buttons() {
     const u64 now = g_kernel.vblank_count();
-    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons() | mapper_buttons() | tour_buttons();
+    u32 b = autopilot_buttons() | climb_buttons() | explore_buttons() | mapper_buttons() | tour_buttons() | mapnav_buttons();
     for (const auto &p : g_script)
         if (now >= p.start && now < p.start + p.frames) b |= p.buttons;
     return b;

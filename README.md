@@ -281,3 +281,16 @@ corridor at x=15798 (state 942): `UP:120`, `RIGHT:500`, `LEFT:26`, `UP:200`, `LE
 icons at the south end of the explored map once the hall has been visited. States: 930 (1F stair landing), 942 (1F corridor), 948 (Courtyard west end),
 949 (Entrance Hall), 950/3300 (town map after leaving, 5-member party, all clock/boss flags set).
 `P2_WATCH_HEX=1` prints each watched word as `value/hex`; `P2_NO_FLOOR=1` makes the mapper/tour ignore the floor byte; `P2_FRAMES_DIR=<relative dir>` redirects frame dumps.
+
+## Town-map navigator (P2_MAPNAV)
+
+`P2_MAPNAV=<node>[,<save-slot>]` drives the town-map cursor to a node by number (game/src/native_funcs.cpp, `mapnav_buttons`): it reads the node and
+edge tables (see `tools/mapgraph.py <slot>`), plans a path, and at every node presses the stick direction that the game's own edge selection
+(`pick_slot`, the refactored core of `map_cursor_pick_edge`) maps to the next edge; it holds the direction along each straight edge, treats an
+edge end as the node (the game keeps `cursor.node = 0xFF` at two-edge nodes), and releases/retries when stalled. On arrival it logs
+`arrived at node N` and, with a slot, writes a savestate. Typical use: `P2_MAPNAV=19,3414 build/dev/p2.exe --headless --load-state 3400 --turbo-until 99999999 --exit-after <V+3000>`.
+Arrival makes the party comment on the place (Ginko/Yukino/Eikichi lines); Cross at a place node with an IN marker enters it.
+Place nodes (type 04) found: Rengedai: Silverman Manor (node 3), Lotus (6); Yumezaki: Zodiac (6), Giga Macho (10), Pachinko Silver (18), Mu Casino (19), Yumezaki Center (20,
+no entry marker yet), GOLD (23); Hirasaka: Kameya Alley (0), Sumaru Prison (4), Sakanoue Building (7), Smile Hirasaka (9, Yukino: "weren't we supposed to be going to Peace Diner?"), node 16.
+Type 40/10 nodes with a "!" bubble are townspeople (Cross shows their talk text). Peace Diner (Kozy's scene, script 013 end) is not one of the type-04 place nodes of the three districts; it
+probably appears through a flag or from the "Theater" entry of the City Map. Savestates: 3400 (Yumezaki map), 3300 (Rengedai map), 3490 (Hirasaka map).
