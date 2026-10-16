@@ -308,3 +308,11 @@ menu (Tony's Shop, Anima Mundi, Satomi Tadashi, Bikini Line, Peace Diner, Velvet
 Ru, Eikichi vs Ginko about the Cuss High rumour, Yukino: "Let's just go to Zodiac and learn the truth for ourselves") and returns control in the diner (state 3800 = 3713).
 Recipe: `P2_MAPNAV=20,3440` from state 3400, then `CROSS`, wait ~120 vblanks, `DOWN, DOWN`, `CROSS`, then Cross every 45 vblanks.
 The next lead is therefore Zodiac (Yumezaki node 6 or the place between it and Pachinko Silver), whose door scene is script 014 once the flags are right.
+
+### Zodiac (the natural way) — state 3813 -> 3900
+
+From Yumezaki Center / the diner: face the exit mat, `LEFT:12, RIGHT:24, DOWN:10, UP:20, CROSS` opens the mall menu and `CIRCLE` returns to the town map with the cursor on node 20 (state 3812).
+`P2_MAPNAV=6,3813` then goes to Zodiac (node 6; IN marker, Cross enters, state 3814 = Zodiac "Exit" entrance, 1F dungeon with minimap, compass N). The explorer bot
+(`P2_EXPLORE=1 P2_EXPLORE_SEED=3`) reaches "Zodiac: Club Zodiac" about 6000 vblanks in (state 3830/3831: red door ahead, 70 UP + Cross); the club scene (script 014, as the remap test showed) plays:
+Noriko, Anna Yoshizaka, Yukino, Eikichi vs the Cuss High students, Maya and Ginko; Eikichi runs off to find Hanakouji-san and the party goes on with four members (hero, Ginko, Maya, Yukino);
+control returns inside the club (state 3835/3900). Next lead from the employees' lines: a group of Cuss High students went upstairs; "the maze on the second floor".
