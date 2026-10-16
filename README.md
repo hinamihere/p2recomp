@@ -391,3 +391,7 @@ Findings:
 * Tools: `P2_GOTO_TOL=<units>` (waypoint tolerance; with `P2_GOTO_INT=1` and the cell bytes, `P2_GOTO="8ceb2e0,8ceb2e0,8ceb2e4;col,row;..."`, tolerance 0.5 steers
   cell by cell), `tools/cellwalk.py <chunk0.bin> <area> <from-slot> <col,row> <first-out-slot>` (plans on layer C, recalibrates the stick per leg, learns blocked steps;
   took the party from the 2F strip to the staffer in 23 legs).
+* **Secret Lounge (script 018) played through, Zodiac cleared.** The lounge door is cells (10-11,16) (`0x4024` in layer C, `0xCC02` in layer B) at the top of the 4-cell-wide
+  corridor; the staffer only blocks col 12, so from state 5696 `DOWN:14, LEFT:60, CROSS` enters (5901). The scene's one choice (op `0x1a`, state 5922 = menu open) picks
+  HELP or YOUSU; `DOWN, CROSS` = "Wait and see what happens" (sets flag 275, the guide's choice for Eikichi's Prime Persona). The scene (Hiroki, Miyabi, Eikichi's stand) ends
+  on the Yumezaki town map with Eikichi back in the party (state 5932). The staffer's own script (DNGSCN 067) only picks his line by flag 274.
