@@ -466,3 +466,11 @@ Tadashi scene (Muses photo), flag **283** (state 10514). Shop exit doors: stand 
 press Cross without turning (the "!" bubble shows the right facing). Town-map navigator pitfall: started on a dead-end type-00 node with
 `node = 0xFF` (right after leaving Honmaru Park) it stalls; nudge the stick (DOWN 40 frames) first. tools/travel.sh <slot> <to> <exit-node>
 <district> goes through the City Map (0 Rengedai, 1 Hirasaka, 2 Yumezaki, 3 Kounan, 4 Theater).
+**Mu (Yumezaki node 19, F0101):** after flag 283, Mu Casino plays script 028 (Muses music-video shoot; AD: "the shoot's being held on the fourth
+floor"; flag 284). The casino room's DOA_0 quad (x 793..1003, z -91..-14; room axes UP = (-x,-z), RIGHT = (-x,+z)) + Cross enters the Mu dungeon
+1F "Casino Entrance" at cell (14,17) (state 10670). F0101 chunk 0: areas 0-3 = 1F-4F (16x22 tiles); every staircase is its own 0x28nn marker pair
+(1F: 2802 (4,2-3), 2804 (27,2-3), 2806 (10,26-27), 2808 (21,26-27), 280a (9,40-41), 280c (22,40-41)); 4F has the door `C838` (18-19,20).
+The south half of 1F is split into a left and a right region by the wall at cols 15-16; cells drawn as wall edges (types 1-4) in row 23 are not
+walkable there (only the gaps cols 5-10 and 21-26). tools/stairmap.py tries a floor's staircases and records the landing floor/cell.
+Travel: tools/travel.sh now takes <from-district> <to-district> (the City Map list wraps around and starts on the current district).
+tools/shopexit.sh leaves a shop through its warp1 quad.
