@@ -357,3 +357,15 @@ Findings:
 * F0098.BIN chunk 0 holds 3 areas (14x32, 25x25, 13x23; tools: `tools/p2lz.py`); area 1's layer 0 is a 14-wide tile grid (512 units/tile, row = (z+2613)/512): rows 23..31 are the hall/ring ("0x1xx" tiles),
   rows 16..22 cols 2..7 the club block (`0x3b`), rows 0..15 the red maze (`0x32` floors). Layer 1 edge values `0xCA03` are the club doors, `0xCA04/0xCA05/0xCA06` the stair pairs (A1 rows 50/52, A2 (13,5),(21,8),(21,21), A3 (16,3),(16,10)).
   The door/warp cells with `0xCA0n` are not yet located in raw coordinates; the Emergency Exit in the ring is only a "locked" text (DNGSCN chunk 13).
+
+### Zodiac: stairs found (1F -> 2F), 3F still open
+
+* The warp op arguments are `(dungeon, area, col, row, facing)`: arg 0 selects the dungeon file (1 = Zodiac F0098, 2 = Kasugayama F0099 - poking it warps between dungeons),
+  arg 1 the floor (1 = 2F maze, 2 = the 1F hall/club side, 3 = 3F "Secret Lounge"), `x = 256*col - 128`, `z = 256*row - 2613`. Floor 3 crashes the game
+  (`fatal: Guest memory access ... 0x80008000` in `recomp_unit_0097`, 225 vblanks after the warp) - the 3F loader is not usable by teleport.
+* The club's DOA0 warp `(1,2,4,34,6)` lands at (896, 6091) on 1F, **west of the club block, in the component that contains the stairs**: `P2_MAPPER` there (`P2_NO_FLOOR=1 P2_NO_BATTLE_DETECT=1`) walks into
+  "Zodiac: Stairs" by itself (state 5140). From the landing, `RIGHT:40` climbs to the 2F landing at (5430, 386) (state 5143); the Zodiac staff there only says "Did you remember your mask?" and lets you walk away.
+* The 2F component reachable from that landing (3,500 cells, `analysis/maps/zod2g.txt`, 150k-2M vblanks of the mapper) is closed: x 2544..11592, z 1000..6500, item sparkles on the Auto Map, **no up stairs**.
+  The guide puts the stairs to 3F and the Aqua Card box on the west side and Trish's Spring in the centre (warp target (area 1, col 8, row 20) = "Trish's Spring" banner, x 1920, z 2507, which is west of
+  the mapped component): the west half of 2F must be entered through something the mapper does not cross (door/teleporter/the spring room).
+* `P2_NO_DIALOGUE_DETECT=1` (tour/mapper) and `tools/exitscan.py <slot> <map> <first> <last>` (walks into the dir-4 event cells of a map, prints AREA CHANGE) were added.

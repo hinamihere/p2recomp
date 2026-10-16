@@ -1012,6 +1012,8 @@ u32 mapper_buttons() {
 
 // The dialogue box: its red top border across the lower part of the screen (rows 192-193).
 bool dialogue_visible() {
+    static const bool disabled = std::getenv("P2_NO_DIALOGUE_DETECT") != nullptr; // red-lit lounges of Zodiac
+    if (disabled) return false;
     int red = 0, total = 0;
     for (int y = 192; y < 194; ++y)
         for (int x = 20; x < 460; ++x) {
