@@ -11,7 +11,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.environ.get('P2_EXE', os.path.join(ROOT, 'build', 'dev', 'p2.exe'))
 src, dst = sys.argv[1], sys.argv[2]
-btn = sys.argv[3] if len(sys.argv) > 3 else 'CROSS'
+btn = sys.argv[3] if len(sys.argv) > 3 else 'CROSS'  # 'MIX' = Cross, Circle, Circle in turn (text pages + menus)
 tries = int(sys.argv[4]) if len(sys.argv) > 4 else 20
 tdir = sys.argv[5] if len(sys.argv) > 5 else 'UP'
 env = dict(os.environ, P2_EXE=EXE, P2_NO_ENCOUNTERS='1')
@@ -45,6 +45,7 @@ for i in range(tries):
             shutil.copy(path(cur), path(dst))
         print('free after', i, 'presses:', before)
         sys.exit(0)
-    drive(cur, dst, 50, f'5={btn}:4')
+    b = ('CROSS', 'CIRCLE', 'CIRCLE')[i % 3] if btn == 'MIX' else btn
+    drive(cur, dst, 50, f'5={b}:4')
     cur = dst
 print('still busy after', tries, 'presses')

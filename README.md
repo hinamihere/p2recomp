@@ -459,3 +459,10 @@ Cross -> the Genie (sets 797) -> "the man at Honmaru Park". Rengedai Honmaru Par
 (BLOCK_TOKSAN, room (1343,-1012)): from (1406,-1004) face DOWN+LEFT, Cross, Talk -> 794 -> "ask the salesman at the sushi restaurant".
 tools/mallexit.py leaves a shop from its exit mat (Cross opens the mall menu, Circle -> town map; detects the node-table pointer change);
 tools/roomscript.py now also lists the room's trigger quads (label, x/z box, facing).
+Sushi salesman (Hirasaka Kameya Alley mall -> Gatten Sushi, BLOCK_TIRO char at (446,-656)): from (442,-722) face LEFT; tools/rumortalk.py
+(tries 4..14 intro pages, then DOWN + Cross = "Talk") found 7 pages -> flag 796. With 794-797 set, the Kuzunoha Detective Agency selector (b_171)
+enters the scene room: walk to the Chief's desk (115,-920) via (300,-1250),(115,-1250) and press Cross without turning -> Chief Todoroki /
+Tadashi scene (Muses photo), flag **283** (state 10514). Shop exit doors: stand in the warp1 quad (e.g. Gatten Sushi x 202..399 z -1392..-1314) and
+press Cross without turning (the "!" bubble shows the right facing). Town-map navigator pitfall: started on a dead-end type-00 node with
+`node = 0xFF` (right after leaving Honmaru Park) it stalls; nudge the stick (DOWN 40 frames) first. tools/travel.sh <slot> <to> <exit-node>
+<district> goes through the City Map (0 Rengedai, 1 Hirasaka, 2 Yumezaki, 3 Kounan, 4 Theater).
