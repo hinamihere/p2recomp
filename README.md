@@ -316,3 +316,12 @@ From Yumezaki Center / the diner: face the exit mat, `LEFT:12, RIGHT:24, DOWN:10
 (`P2_EXPLORE=1 P2_EXPLORE_SEED=3`) reaches "Zodiac: Club Zodiac" about 6000 vblanks in (state 3830/3831: red door ahead, 70 UP + Cross); the club scene (script 014, as the remap test showed) plays:
 Noriko, Anna Yoshizaka, Yukino, Eikichi vs the Cuss High students, Maya and Ginko; Eikichi runs off to find Hanakouji-san and the party goes on with four members (hero, Ginko, Maya, Yukino);
 control returns inside the club (state 3835/3900). Next lead from the employees' lines: a group of Cuss High students went upstairs; "the maze on the second floor".
+
+### Zodiac dungeon notes (F0098.BIN)
+
+Zodiac's 1F is `F0098.BIN` (area 14x32 tiles; the lower 7 rows are the corridor ring seen on the Auto Map, "Zodiac 1F"). Door selectors: cell `0xC0nn` in layer C3 with blob = nn + 11
+(club door 0xC003 -> b_014 = script 014; 0xC005 -> b_016 = script 16, the masked-guests lounge with the mask box (sets flags 274, 1089, 1090, 1319); 0xC006 -> b_017). The remap
+`P2_IO_REMAP=220516352,220520448` at the club door (state 3831, `UP:70`, Cross) enters script 16's room (a dim backstage lounge with sofas, masked NPCs, boxes; renders correctly, state 3930).
+Script 15 (Ginko/Maya/Yukino about the secret lounge, masked guests; tests flag 1146) and script 18 (Hiroki Sugimoto the Leader, Eikichi, Kozy = Miyabi Hanakouji; sets 275, 276, 1097) and 19 (Eikichi's change of heart) are the next beats.
+The club room itself (script 014 package, part 7 triggers): the entrance door quad DOA0 at x 10..60, z -300..-200 and the exit-to-corridor door `0x000d` at x 300..400, z -1390..-1330 (DOWN+LEFT from the start state walks straight into it),
+both warp back to the dungeon; the room axes here: UP = (-x,+z), DOWN+LEFT = -z, UP+RIGHT = +z, RIGHT = +x/+z.
