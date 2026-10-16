@@ -427,3 +427,5 @@ Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st,
 * Dungeon doors need Cross from the adjacent cell, and the door-id -> branch.bin selector mapping is per floor and not linear (2F `C809` -> b_022,
   3F `C809` -> b_025, B1F `CC03` -> b_028); only IO traces resolve it so far.
 * Mapper/cellwalk get stuck on corner posts and NPCs; the adaptive walker (tools/cellwalk.py) is slow (~10 min per maze half).
+**Shelter cleared (2026-10-16 night):** three bottom-room passes set 279; door 37 then ran script 022 (sleep), 023 (dream), 024 (quiz; a random
+Cross / DOWN+Cross pattern passes it since wrong answers only repeat) -> flags 280 + 281, control back in the B1F basement entry room (state 9163).
