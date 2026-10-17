@@ -544,3 +544,7 @@ the cleaning lady) -> Ixquic and the Masked Circle -> boss Ixquic + Belphegor. T
 presses walk into the fight and lose (game over -> title); step in 90-vblank chunks until the enemy record fills, then bosswin (records 5..7 are
 enemies; one that is already 0 HP makes the layout check fail -> poke 0x0950BAA2+176*6 directly). Party Lv17 after it; Elly decodes the next
 riddle: **"El Dorado"** ("the sign of water that presides over death and rebirth"); control on the Hirasaka map (state 17170).
+
+## Chapter 3 (guide order, almarsguides): GOLD (Yumezaki node 23; 3F Men's Staff Room = transmitter + riddle, then chase the man to the 1F
+Gold Boxing Gym) -> Aerospace Museum (Kounan; kids on 2F-4F, choice "Leave this to Maya", boss King Leo on the roof) -> Kuchisake-Onna rumor (old
+man near Mt. Iwato) -> Mt. Iwato (Rengedai, north of Alaya Shrine; masks on B1F/B2F; boss Shadow Maya, Prime Persona choices) -> Mt. Katatsumuri.
