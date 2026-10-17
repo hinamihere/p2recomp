@@ -519,3 +519,6 @@ then the elevator to 5F and Eikichi in the Women's Bathroom -> Ixquic + Belphego
 Smile Hirasaka 3F: Maya is in the Men's Restroom on the south-east (cell (65,28) marker `2C00`); route (6,24) -> (46,33) -> (66,33) -> (65,29),
 then LEFT:4 + Cross (flags 312, 1681; state 14011). Use route.sh with intermediate goals: cellwalk alone gets stuck on the 3F pillars.
 Ginko: 3F west stairs (5,20-21) -> 2F (6,25) -> 2F (5,20-21) -> 1F (6,25) -> walk to (7,37), RIGHT:14 (south) + Cross -> flag 314 (state 14430).
+Yukino: B1F is a separate file **F0106** (35x17 tiles). The elevator (2x2 marker `0xA40n` at (32-33,8-9) on every floor, stand at (32,10), LEFT +
+Cross on 1F) offers 4F / 2F / 1F / B1F; DOWN + Cross = B1F. Yukino = B1F marker `2C00` at (67,26) in the east wing (reach it through the north
+passage, row 4-8).
