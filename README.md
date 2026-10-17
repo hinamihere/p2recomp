@@ -512,3 +512,7 @@ DOWN+LEFT (facing index 6 = +x here) and Cross -> "Obtained the Riddle!" (flag 3
 meet us at Double Slash in Aoba" (state 13551).
 Double Slash = Aoba node 2 (Aoba Way mall: Clair de Lune / Rosa Candida / Satomi Tadashi / Etheria / Double Slash / Velvet Room), DOWN x2 + Cross:
 Elly (Eriko Kirishima) decodes the riddle on the city map -> the next target is in Hirasaka, "when the winds of change blow" (flag 305, state 13600).
+**Smile Hirasaka (Hirasaka node 9, F0107):** areas 0-3 = 1F-4F (35x21 / 35x19 tiles), elevator marker `0xA40n` at (32-33,8-9). Entry: the party
+splits (Maya's cigarette scene) and the hero starts alone in the 4F Women's Restroom (door `CA02` (64,28-29)); 4F stairs (5,20-21) -> 3F (6,24).
+Guide order (almarsguides chapter 2): Maya on 3F south-east, Ginko on 1F south (3F western stairs), Yukino on B1F south (3F north-eastern stairs),
+then the elevator to 5F and Eikichi in the Women's Bathroom -> Ixquic + Belphegor (end of chapter 2). Optional rumor spreading skipped.
