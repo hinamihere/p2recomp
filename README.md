@@ -532,3 +532,9 @@ Yukino: B1F east (66,27), UP+RIGHT:3 + Cross -> flag 313 ("hurry and join up wit
 Return trip: B1F east (58,6) UP -> 1F (62,6). 1F and 2F up-stairs are the (58-59,5) pairs; approach them from the south ((62,9) -> (58,9) ->
 (58,7), push -row) because walking west along row 6 enters the (62-63,5) down-stairs instead. tools/where.py <slot...> prints cell/floor and which
 decoded chunk-0 files are resident (B1F (F0106) and 1F (F0107) both report floor 0).
+
+### Savestate housekeeping
+Bot runs write hundreds of 36 MB savestates. `tools/prune_states.py <from-slot>` deletes every slot below <from-slot> except the milestones listed
+in `states/KEEP` (2 = boot/early, 3200 Clock Tower done, 3300/3400 town maps, 3900 Zodiac club, 5932 Zodiac cleared, 9950 Kasugayama cleared,
+10008 Kounan, 12470 Mu cleared, 12921 Giga Macho cleared, 13321 Prince Taurus beaten, 13551 Aoba Park escape, 13600 Double Slash, 14011/14430/15810
+Maya/Ginko/Yukino recovered, 16750/16824 Smile Hirasaka 4F). Pruned 2026-10-17: 45 GB -> 3 GB.
