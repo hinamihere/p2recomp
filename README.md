@@ -590,3 +590,9 @@ is layout A at **0x094EB2A0** (copy +0xB00; party 5 x 1 HP, King Leo 2067 HP); t
 table first (game over, the game reloaded the chapter-1 memory card save), so bosswin now checks 0x094EB2A0 as a second known address.
 Battle state 23205, won -> 23250 (Lv 23); back on the Kounan town map at Ebisu Beach (state 23258).
 build/scratch/inbattle.py <slot> prints whether a layout-A/B table is filled (layout B gives false positives outside battles).
+**Chapter 3 -> Mt. Iwato (2026-10-17):** Kounan exit node 25 -> Rengedai (travel.sh 23258 23300 25 4 0). Rengedai nodes: 14 = Mt. Iwato,
+15 = Alaya Shrine, exits 7-11. Mt. Iwato is locked (no "IN" marker) until (1) the Kuzunoha Detective Agency scene (Hirasaka node 0 Kameya Alley,
+mall grid DOWN, DOWN, RIGHT; Tamaki, flags 336-344; the agency EXIT quad x 411..588 z -1394..-1346: UP+RIGHT 20 frames from the scene's end
+spot, then ONE Cross and Circle - extra Crosses re-pick the agency from the mall menu; Ms. Ideal scene on the way out sets 345) and (2) the
+Alaya Shrine scene (flag 346). Then the Mt. Iwato node needs a fresh arrival (mapnav away to node 12 and back to 14) before Cross enters.
+Kuchisake-Onna rumor and the four masks skipped (optional: Ultimate Personas). Mt. Iwato B1F entrance "Mt. Iwato: Exit" at (8,43) (state 23356).
