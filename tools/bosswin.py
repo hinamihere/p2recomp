@@ -33,6 +33,14 @@ while k < 6 and 0 < rec(KNOWN + 176 * k)[0] <= rec(KNOWN + 176 * k)[2] <= 999 an
     k += 1
 if k and rec(KNOWN + 176 * k)[0] > 0 and rec(KNOWN + 176 * k)[3] == 0:
     best = (KNOWN, k)
+layout = 'A'
+if not best:
+    B = 0x0950BAA2 - 0x08000000
+    kb = 0
+    while kb < 6 and 0 < rec(B + 176 * kb)[1] <= 999 and rec(B + 176 * kb)[2] > 0:
+        kb += 1
+    if kb and rec(B + 176 * kb)[0] > 0 and rec(B + 176 * kb)[2] == 0:
+        best, layout = (B, kb), 'B'
 for off in ([] if best else range(0x1000000, 0x1C00000, 4)):
     hp, hp2, mhp, sp = rec(off)
     if not (0 < hp <= mhp <= 999 and hp == hp2 and 0 < sp <= 999):
@@ -48,17 +56,20 @@ for off in ([] if best else range(0x1000000, 0x1C00000, 4)):
         if e[0] > 0 and e[3] == 0:
             best = (off, k)
             break
+# layouts: A = hp, hp, max hp, sp (table at 0x094AB290); B = hp, max hp, sp, max sp (table at 0x0950BAA2)
 if not best:
     sys.exit('party table not found')
 off, k = best
-print(f'party table at {0x08000000 + off:08x}, {k} members, enemy hp {rec(off + 176 * k)[0]}')
+print(f'party table at {0x08000000 + off:08x} (layout {layout}), {k} members, enemy hp {rec(off + 176 * k)[0]}')
 pokes = []
 for base in (off, off + 0xB00):
     for i in range(k):
-        mhp = rec(off + 176 * i)[2]
-        pokes.append(f'{0x08000000 + base + 176 * i:x},x03e703e7')
-        pokes.append(f'{0x08000000 + base + 176 * i + 4:x},x{rec(off + 176 * i)[3]:04x}03e7')
-    for j in range(k, 6):
+        if layout == 'A':
+            pokes.append(f'{0x08000000 + base + 176 * i:x},x03e703e7')
+            pokes.append(f'{0x08000000 + base + 176 * i + 4:x},x{rec(off + 176 * i)[3]:04x}03e7')
+        else:
+            pokes.append(f'{0x08000000 + base + 176 * i:x},x03e703e7')
+    for j in range(k, 8):
         if rec(off + 176 * j)[0] > 0:
             pokes.append(f'{0x08000000 + base + 176 * j:x},x00010001')
 env = dict(os.environ, P2_EXE=EXE, P2_NO_ENCOUNTERS='1', P2_POKE=f'{vblank + 1},' + ','.join(pokes))

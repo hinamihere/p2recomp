@@ -538,3 +538,9 @@ Bot runs write hundreds of 36 MB savestates. `tools/prune_states.py <from-slot>`
 in `states/KEEP` (2 = boot/early, 3200 Clock Tower done, 3300/3400 town maps, 3900 Zodiac club, 5932 Zodiac cleared, 9950 Kasugayama cleared,
 10008 Kounan, 12470 Mu cleared, 12921 Giga Macho cleared, 13321 Prince Taurus beaten, 13551 Aoba Park escape, 13600 Double Slash, 14011/14430/15810
 Maya/Ginko/Yukino recovered, 16750/16824 Smile Hirasaka 4F). Pruned 2026-10-17: 45 GB -> 3 GB.
+**Chapter 2 finished (2026-10-17):** with Maya/Ginko/Yukino recovered, the 4F Women's Restroom door (`CA02`, from (65,29)) runs script 051 (Eikichi vs
+the cleaning lady) -> Ixquic and the Masked Circle -> boss Ixquic + Belphegor. This fight uses a different battle table: **0x0950BAA2** (copy
++0xB00), records hp, max hp, sp, max sp (layout B in tools/bosswin.py); party at 1 HP at the start, Ixquic 1656 HP, Belphegor 1778. Blind Cross
+presses walk into the fight and lose (game over -> title); step in 90-vblank chunks until the enemy record fills, then bosswin (records 5..7 are
+enemies; one that is already 0 HP makes the layout check fail -> poke 0x0950BAA2+176*6 directly). Party Lv17 after it; Elly decodes the next
+riddle: **"El Dorado"** ("the sign of water that presides over death and rebirth"); control on the Hirasaka map (state 17170).
