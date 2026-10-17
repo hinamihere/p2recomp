@@ -619,3 +619,10 @@ Masks (user-provided auto-map screenshots): secret rooms are the one-sided 0x24 
 32,20 29,15 24,13 21,8 16,6 -> (15,7), RIGHT (= west) into warp 240c (14,6-7) = Reflecting Pool (scene) -> DOWN 300 then RIGHT -> (6,15)
 -> diagwalk (6,42) -> warp 240d -> Secret Room, box quad x 449..550 z -371..-313: roomwalk to (472,-410), DOWN+LEFT + Cross -> "Obtained
 the Blue Swan Mask" (flag 484; state 28690).
+**B1F masks (from the B1F state 26012 at (83,17), i.e. before B2F - Blue Swan has to be fetched again on the way down):** Yellow Owl =
+warp 2408 (86-87,37): diagwalk to (86,37) -> Secret Room; roomwalk to (500,-410) axes 1,-1,-1,-1, DOWN+LEFT 8 frames + Cross -> flag 482
+(state 29190). Close the message (Cross, Circle), roomwalk back to the entry (494,-800), push UP -> (87,32). Red Eagle = warp 2409 (66-67,28):
+diagwalk to (66,28) -> same room layout -> flag 483 (state 29490); exit UP -> (66,33). Pink Azas = warp 2406 (53,42-43): back through warp 2407
+(83,16) -> pool room (DOWN 300, RIGHT) -> (74,8) -> legs 69,8 64,3 59,4 53,6 48,11 44,16 42,21 46,26 44,31 44,37 50,42 52,42 -> stick DOWN at
+(52,42) (stick UP there enters the first Reflecting Pool instead) -> box -> flag 481 (state 30891). Mask flags 481-484 = Pink Azas, Yellow
+Owl, Red Eagle, Blue Swan.
