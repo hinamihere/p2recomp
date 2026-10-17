@@ -526,3 +526,5 @@ Smile Hirasaka topology: the elevator stops at 4F / 2F / 1F / B1F (not 3F). On 2
 (58-59,5)/(62-63,5)) is walled off from the elevator side; B1F's way east is locked double doors ("Storage", (49,4)). Only 3F's north-east area
 is open to the rest of the floor, so the B1F east wing (Yukino) is reached through the 3F north-east stairs: 2F west stairs (5,24-25) up -> 3F,
 walk to (62,7), then down the north-east stair chain.
+North-east stair chain (verified): 3F (62,7) push -row -> 2F (58,6); 2F walk to (62,6) push -row -> 1F (58,6); on 1F from (62,6) push LEFT
+(-col, toward the 58-59 pair) -> **B1F east wing** (58,6) (F0106; the floor byte reads 0 on B1F because it is that file's area 0).
