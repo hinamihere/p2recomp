@@ -528,3 +528,4 @@ is open to the rest of the floor, so the B1F east wing (Yukino) is reached throu
 walk to (62,7), then down the north-east stair chain.
 North-east stair chain (verified): 3F (62,7) push -row -> 2F (58,6); 2F walk to (62,6) push -row -> 1F (58,6); on 1F from (62,6) push LEFT
 (-col, toward the 58-59 pair) -> **B1F east wing** (58,6) (F0106; the floor byte reads 0 on B1F because it is that file's area 0).
+Yukino: B1F east (66,27), UP+RIGHT:3 + Cross -> flag 313 ("hurry and join up with Eikichi"), state 15810.
