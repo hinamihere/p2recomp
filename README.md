@@ -558,3 +558,5 @@ Yumezaki map (state 17791). Next: Aerospace Museum (Kounan).
 Aerospace Museum = Kounan node 15 (entry scene: Tadashi, King Leo sets fire). Dungeon file **F0109**: area 4 = entrance floor (25x17 tiles,
 stairs (12-13,3)), areas 0-2 = 2F-4F (39x24); `0x1002` layer-B markers = the trapped kids (guide: 2F one group, 3F two, 4F two; the floors open
 up as they are rescued). F0121 is resident as well (probably the roof / King Leo arena).
+The museum has a **time limit** (7:56 on entering 2F): the countdown is an int32 seconds counter at `0x08E36DFC`; for bot runs hold it with
+`P2_POKE_HOLD=1 P2_POKE=<vblank>,08e36dfc,x384` (900 s).
