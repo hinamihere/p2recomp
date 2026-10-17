@@ -626,3 +626,6 @@ diagwalk to (66,28) -> same room layout -> flag 483 (state 29490); exit UP -> (6
 (83,16) -> pool room (DOWN 300, RIGHT) -> (74,8) -> legs 69,8 64,3 59,4 53,6 48,11 44,16 42,21 46,26 44,31 44,37 50,42 52,42 -> stick DOWN at
 (52,42) (stick UP there enters the first Reflecting Pool instead) -> box -> flag 481 (state 30891). Mask flags 481-484 = Pink Azas, Yellow
 Owl, Red Eagle, Blue Swan.
+**All four Mt. Iwato masks (flags 481-484) in state 34290** (B2F Blue Swan room). Scripts: build/scratch/down.sh (B1F Pink Azas room ->
+stairs), build/scratch/b2f.sh <B1F-stairs-slot> (B2F arrival -> secret strips -> 240c front (15,7)), build/scratch/swan.sh (240c pool room ->
+Blue Swan box).
