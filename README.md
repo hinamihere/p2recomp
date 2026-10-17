@@ -516,3 +516,5 @@ Elly (Eriko Kirishima) decodes the riddle on the city map -> the next target is 
 splits (Maya's cigarette scene) and the hero starts alone in the 4F Women's Restroom (door `CA02` (64,28-29)); 4F stairs (5,20-21) -> 3F (6,24).
 Guide order (almarsguides chapter 2): Maya on 3F south-east, Ginko on 1F south (3F western stairs), Yukino on B1F south (3F north-eastern stairs),
 then the elevator to 5F and Eikichi in the Women's Bathroom -> Ixquic + Belphegor (end of chapter 2). Optional rumor spreading skipped.
+Smile Hirasaka 3F: Maya is in the Men's Restroom on the south-east (cell (65,28) marker `2C00`); route (6,24) -> (46,33) -> (66,33) -> (65,29),
+then LEFT:4 + Cross (flags 312, 1681; state 14011). Use route.sh with intermediate goals: cellwalk alone gets stuck on the 3F pillars.
