@@ -572,3 +572,5 @@ flags each one sets.
 Guide (almarsguides chapter 3, user-provided link): museum kids 2F SW, 3F SE + SW, 4F SW + one more (a kid stuck in an elevator scene on 4F,
 demons appear after it); then the roof (King Leo, weak to water). Mt. Iwato map images on that page: Pink Azas / Yellow Owl / Red Eagle / Blue Swan
 mask locations and the B2F pit-fall room (".../AlmarsImages/Retro/Walkthroughs/PSP/Persona2InnocentSin/FullPlaythrough/Chapter3/*.png").
+Museum 3F kids: south-east door (64,34) (flag 320) and south-west door (12-13,34) entered from (13,35) pushing UP (flag 319; state 20182);
+the doors at (28,34), (48,34), (34,12), (43,12) are empty exhibit rooms.
