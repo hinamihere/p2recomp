@@ -510,3 +510,5 @@ in the dressing room behind door (34,9) (b_048 -> script 217 once 292 is set): l
 DOWN+LEFT (facing index 6 = +x here) and Cross -> "Obtained the Riddle!" (flag 304). Then the corridor's north-west door `C805` (3,2), push DOWN
 -> the park explodes (bomb timer cut-in), Lisa scene with a choice (Gently cheer her up / Slap her - first option taken), Yukino: "She's gonna
 meet us at Double Slash in Aoba" (state 13551).
+Double Slash = Aoba node 2 (Aoba Way mall: Clair de Lune / Rosa Candida / Satomi Tadashi / Etheria / Double Slash / Velvet Room), DOWN x2 + Cross:
+Elly (Eriko Kirishima) decodes the riddle on the city map -> the next target is in Hirasaka, "when the winds of change blow" (flag 305, state 13600).
