@@ -27,12 +27,14 @@ def rec(off):
 best = None
 # the battle table lives at 0x094AB290 (copy +0xB00) in every fight seen so far: party records (hp, hp, max hp, sp) then
 # enemy records with sp 0
-KNOWN = 0x094AB290 - 0x08000000
-k = 0
-while k < 6 and 0 < rec(KNOWN + 176 * k)[0] <= rec(KNOWN + 176 * k)[2] <= 999 and rec(KNOWN + 176 * k)[3] > 0:
-    k += 1
-if k and rec(KNOWN + 176 * k)[0] > 0 and rec(KNOWN + 176 * k)[3] == 0:
-    best = (KNOWN, k)
+# (0x094EB2A0 in the King Leo fight on the airship)
+for KNOWN in (0x094AB290 - 0x08000000, 0x094EB2A0 - 0x08000000):
+    k = 0
+    while k < 6 and 0 < rec(KNOWN + 176 * k)[0] <= rec(KNOWN + 176 * k)[2] <= 999 and rec(KNOWN + 176 * k)[3] > 0:
+        k += 1
+    if k and rec(KNOWN + 176 * k)[0] > 0 and rec(KNOWN + 176 * k)[3] == 0:
+        best = (KNOWN, k)
+        break
 layout = 'A'
 if not best:
     B = 0x0950BAA2 - 0x08000000

@@ -426,8 +426,6 @@ Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st,
   gave the Glib student's line); flag 278 was forced with `tools/setflags.py` (state 6510). Find the real trigger (facing/position) some time.
 * Dungeon doors need Cross from the adjacent cell, and the door-id -> branch.bin selector mapping is per floor and not linear (2F `C809` -> b_022,
   3F `C809` -> b_025, B1F `CC03` -> b_028); only IO traces resolve it so far.
-* Aerospace Museum 4F: roof access not found yet - north stairs (36-37,3) blocked by fire after both 4F rescues (see the museum
-  section); try the south stairs (36-37,46) / NPC 2C00 (36,45) and marker B096 (63,8).
 * Mapper/cellwalk get stuck on corner posts and NPCs; the adaptive walker (tools/cellwalk.py) is slow (~10 min per maze half).
 **Shelter cleared (2026-10-16 night):** three bottom-room passes set 279; door 37 then ran script 022 (sleep), 023 (dream), 024 (quiz; a random
 Cross / DOWN+Cross pattern passes it since wrong answers only repeat) -> flags 280 + 281, control back in the B1F basement entry room (state 9163).
@@ -584,3 +582,11 @@ The north-east ring pocket (63-64,2) traps the cellwalker (diagonal camera there
 **Stuck (2026-10-17):** after both 4F rescues the north stairs `2800/2801` (36-37,3) are still blocked by fire (Maya: "If we don't hurry, we'll
 all be burned to death!"), and the stairs `A000` (40-41,3) are behind a closed shutter. Untested: the south stairs `2802/2803` (36-37,46) with the
 NPC `2C00` at (36,45), and the unique layer-B marker `B096` at (63,8). Last state 22884 at (36,33), 4F.
+**Aerospace Museum cleared (2026-10-17):** the roof is reached through the 4F **south** stairs `2802` (36-37,46) (walk to (37,45), push
+DOWN) -> 5F stair room (F0109 area 3, 8x10 tiles, arrive (4,7)) -> north doors (2-5,0) from (3,1) pushing UP -> roof scene (Tamaki, Tatsuya
+Sudou, the roof collapses; FMV) -> blimp escape (script 077) -> free control on the **Airship Bridge** (room scene; labels H_/E_/Y_SENTO, HENKO =
+leader changes). The bridge exit: walk LEFT to the wall (57,-559), then hold DOWN -> deck scene "Esmeralda" -> King Leo battle. Its battle table
+is layout A at **0x094EB2A0** (copy +0xB00; party 5 x 1 HP, King Leo 2067 HP); the generic scan in tools/bosswin.py picked a wrong 2-member
+table first (game over, the game reloaded the chapter-1 memory card save), so bosswin now checks 0x094EB2A0 as a second known address.
+Battle state 23205, won -> 23250 (Lv 23); back on the Kounan town map at Ebisu Beach (state 23258).
+build/scratch/inbattle.py <slot> prints whether a layout-A/B table is filled (layout B gives false positives outside battles).
