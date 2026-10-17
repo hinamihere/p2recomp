@@ -426,6 +426,8 @@ Quiz (script 024, 5 questions, op 0x1a): correct options are 1st, 2nd, 2nd, 1st,
   gave the Glib student's line); flag 278 was forced with `tools/setflags.py` (state 6510). Find the real trigger (facing/position) some time.
 * Dungeon doors need Cross from the adjacent cell, and the door-id -> branch.bin selector mapping is per floor and not linear (2F `C809` -> b_022,
   3F `C809` -> b_025, B1F `CC03` -> b_028); only IO traces resolve it so far.
+* Aerospace Museum 4F: roof access not found yet - north stairs (36-37,3) blocked by fire after both 4F rescues (see the museum
+  section); try the south stairs (36-37,46) / NPC 2C00 (36,45) and marker B096 (63,8).
 * Mapper/cellwalk get stuck on corner posts and NPCs; the adaptive walker (tools/cellwalk.py) is slow (~10 min per maze half).
 **Shelter cleared (2026-10-16 night):** three bottom-room passes set 279; door 37 then ran script 022 (sleep), 023 (dream), 024 (quiz; a random
 Cross / DOWN+Cross pattern passes it since wrong answers only repeat) -> flags 280 + 281, control back in the B1F basement entry room (state 9163).
@@ -574,3 +576,11 @@ demons appear after it); then the roof (King Leo, weak to water). Mt. Iwato map 
 mask locations and the B2F pit-fall room (".../AlmarsImages/Retro/Walkthroughs/PSP/Persona2InnocentSin/FullPlaythrough/Chapter3/*.png").
 Museum 3F kids: south-east door (64,34) (flag 320) and south-west door (12-13,34) entered from (13,35) pushing UP (flag 319; state 20182);
 the doors at (28,34), (48,34), (34,12), (43,12) are empty exhibit rooms.
+Museum 3F -> 4F: 3F stairs (40-41,3) -> elevator kid scene (flag 333) -> 4F (F0109 area 2) at (38,12) inside the central elevator room
+(state 20456). The room opens to the south at (36,19); the exhibit doors (`C804`-`C80B`) only open from the outer ring corridor (cols 1-4 /
+73-76, rows 1-4), reached through row 35. 4F kids: west door `C807` (5,31) from (4,31) pushing RIGHT (flag 321; state 21382) and north-east door
+`C809` (69,5) from (69,4) pushing DOWN (flags 322 + 492; state 22082). East `C80A/B` (72,30-31) and north-west `C804/5` (8-9,5) are empty.
+The north-east ring pocket (63-64,2) traps the cellwalker (diagonal camera there); push LEFT then DOWN by hand to get out to (59,13).
+**Stuck (2026-10-17):** after both 4F rescues the north stairs `2800/2801` (36-37,3) are still blocked by fire (Maya: "If we don't hurry, we'll
+all be burned to death!"), and the stairs `A000` (40-41,3) are behind a closed shutter. Untested: the south stairs `2802/2803` (36-37,46) with the
+NPC `2C00` at (36,45), and the unique layer-B marker `B096` at (63,8). Last state 22884 at (36,33), 4F.
