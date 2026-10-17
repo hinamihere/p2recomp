@@ -671,6 +671,22 @@ u32 mapper_buttons() {
     auto floor_of = [&](int cx) { return static_cast<int>(std::floor((static_cast<double>(cx) + kFloorOff / 2) / kFloorOff)); };
     auto cell_x = [&](Cell c) { return c.first - floor_of(c.first) * kFloorOff; };
     const Cell here{static_cast<int>(std::floor(x / kCell)) + fl * kFloorOff, static_cast<int>(std::floor(z / kCell))};
+    // P2_MAPPER_FLOORSAVE=<slot>: the first time the party stands on a floor it has not been on before, write a savestate
+    // to <slot> + floor (so a later run can start there even if the mapper rolls back after the floor change).
+    {
+        static const int floorsave = [] { const char *e = std::getenv("P2_MAPPER_FLOORSAVE"); return e ? std::atoi(e) : -1; }();
+        static std::set<int> seen_floors;
+        static u64 floor_since = 0;
+        static int floor_cur = -1;
+        if (floorsave >= 0 && !no_floor) {
+            if (fl != floor_cur) { floor_cur = fl; floor_since = now; }
+            // wait until the floor has been stable for a second (the byte flickers on the stairs)
+            if (now - floor_since == 30u && seen_floors.insert(fl).second) {
+                savestate_request_save(floorsave + fl);
+                LOG_I("mapper", "new floor %d: savestate %d at (%.0f, %.0f)", fl, floorsave + fl, static_cast<double>(raw_x), static_cast<double>(raw_z));
+            }
+        }
+    }
     auto centre = [&](Cell c) { return std::pair<float, float>{(static_cast<float>(cell_x(c)) + 0.5f) * kCell, (static_cast<float>(c.second) + 0.5f) * kCell}; };
     auto edge = [&](Cell c) -> std::array<int, 4> & {
         auto it = m.edges.find(c);
