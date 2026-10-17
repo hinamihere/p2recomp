@@ -529,3 +529,6 @@ walk to (62,7), then down the north-east stair chain.
 North-east stair chain (verified): 3F (62,7) push -row -> 2F (58,6); 2F walk to (62,6) push -row -> 1F (58,6); on 1F from (62,6) push LEFT
 (-col, toward the 58-59 pair) -> **B1F east wing** (58,6) (F0106; the floor byte reads 0 on B1F because it is that file's area 0).
 Yukino: B1F east (66,27), UP+RIGHT:3 + Cross -> flag 313 ("hurry and join up with Eikichi"), state 15810.
+Return trip: B1F east (58,6) UP -> 1F (62,6). 1F and 2F up-stairs are the (58-59,5) pairs; approach them from the south ((62,9) -> (58,9) ->
+(58,7), push -row) because walking west along row 6 enters the (62-63,5) down-stairs instead. tools/where.py <slot...> prints cell/floor and which
+decoded chunk-0 files are resident (B1F (F0106) and 1F (F0107) both report floor 0).
