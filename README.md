@@ -646,3 +646,12 @@ Mt. Katatsumuri Entrance (state 38205): "Bust right through." is the default cho
 <table>: holds the party at 999 HP and sets live enemies to 1 HP each 400-vblank chunk (battle 38218 -> won by chunk 1). bosswin now has
 `BOSSWIN_TABLE=<hex>` and pokes up to 10 enemy records. build/scratch/levelup.sh clears Level Up screens. Free control at the Entrance
 (state 38404).
+**Mt. Katatsumuri done (2026-10-18):** F0111 = the front route (areas 0-11, linear; tools/linear.py climbs it: per area it takes the
+stairs group farthest from the arrival, walking the plain-floor 8-way path in 6-cell diagwalk legs, then tools/stairgo.py pushes each
+direction until the floor changes; it prunes states after every area). Area 11 = the fork: north (10-11,3) = Goketsuji (soldier wave
+fight, table 0x0955BAE0 -> tools/wavewin.py; monks scene sets flags 370, 462, 1331); instead of walking out of the temple the flags were
+copied onto the fork state (tools/setflags.py 39590 40400 370,462,1331) -> west exit (3,10-11) -> summit route F0123 (areas 0-3) ->
+area 3 (22-23,3) -> Summit: Longinus #13 solo fight. Its HP lives in the persistent party record (hero hp at 0x08E68608 as u16, max hp
++2), not only in the battle table (0x098ADA10, enemy +176): hold both with P2_POKE_HOLD (state 48161 -> won 48300, Lv 28). Yukki scene:
+"You'd deny his last request...?" is the default (Cross) -> Durga (state 48370). Next: Caracol.
+Disk: ~36 MB per state, ~1500 states per dungeon -> prune often (linear.py does it).
