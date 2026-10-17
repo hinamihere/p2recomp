@@ -17,8 +17,13 @@ C = [struct.unpack_from('<H', d, offs[2] + 2 * i)[0] & 0xff for i in range(W * H
 # P2_CELLWALK_EDGES_SOLID=1: treat the wall-edge cell types 1-4 as solid (Mu draws whole wall cells with them; the school's
 # corridors use them as one-sided edges, the default).
 EDGES_SOLID = os.environ.get('P2_CELLWALK_EDGES_SOLID') == '1'
-solid = lambda c, r: not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3b, 0x3d) or (EDGES_SOLID and 1 <= C[r * W + c] <= 4)
-wall = lambda c, r, side: C[r * W + c] == side
+# P2_CELLWALK_SOLID=<hex,hex,...>: extra solid cell types (Mt. Iwato F0110: 0x49 = rocks in the bamboo corridors)
+# P2_CELLWALK_BSOLID=1: layer-B value 0x8000 marks solid cells (Mt. Iwato draws its diagonal cave walls this way)
+BSOLID = os.environ.get('P2_CELLWALK_BSOLID') == '1'
+BL = [struct.unpack_from('<H', d, offs[1] + 2 * i)[0] for i in range(W * H)]
+EXTRA = {int(v, 16) for v in os.environ.get('P2_CELLWALK_SOLID', '').split(',') if v}
+solid = lambda c, r: not (0 <= c < W and 0 <= r < H) or C[r * W + c] in (0x3b, 0x3d) or C[r * W + c] in EXTRA or (BSOLID and (BL[r * W + c] == 0x8000 or BL[r * W + c] >> 8 == 0x24)) or (EDGES_SOLID and 1 <= C[r * W + c] <= 4)
+wall = lambda c, r, side: not BSOLID and C[r * W + c] == side  # layer B already encodes the walls
 moves = [((0, -1), 1, 3), ((1, 0), 2, 4), ((0, 1), 3, 1), ((-1, 0), 4, 2)]
 blocked = set()
 env0 = dict(os.environ, P2_EXE=os.environ.get('P2_EXE', os.path.join(ROOT, 'build', 'dev', 'p2.exe')), P2_NO_ENCOUNTERS='1')

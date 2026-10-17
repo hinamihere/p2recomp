@@ -596,3 +596,15 @@ mall grid DOWN, DOWN, RIGHT; Tamaki, flags 336-344; the agency EXIT quad x 411..
 spot, then ONE Cross and Circle - extra Crosses re-pick the agency from the mall menu; Ms. Ideal scene on the way out sets 345) and (2) the
 Alaya Shrine scene (flag 346). Then the Mt. Iwato node needs a fresh arrival (mapnav away to node 12 and back to 14) before Cross enters.
 Kuchisake-Onna rumor and the four masks skipped (optional: Ultimate Personas). Mt. Iwato B1F entrance "Mt. Iwato: Exit" at (8,43) (state 23356).
+**Mt. Iwato = dungeon file F0110** (`build/f110_c0.bin`; area 0 = B1F 94x52 cells, area 1 = B2F 48x76, area 2 48x48, area 3 24x78). Its
+walls are drawn in **layer B** (0x8000 solid, 0xE0nn diagonal half-cells), not layer C, and the floor is split into regions joined by
+**0x24nn warp pairs** = small cave room scenes ("Cave Entrance", "Reflecting Pool", "Secret Room") with an exit on each side. The camera turns
+between cave zones, so the stick axes change (UP = north, east or south). Tools: **tools/diagwalk.py** (8-way planner on layer B, one push per
+step, re-calibrates the axes whenever a step does not move), build/scratch/reach.py (warps reachable from a cell), build/scratch/dchain.sh
+(chain diagwalk legs). cellwalk.py gained `P2_CELLWALK_SOLID=<hex,...>` and `P2_CELLWALK_BSOLID=1` (layer-B walls, warps solid).
+B1F route: entrance corridor (8,43) (rocks 0x49 at (8,36), (9,31-32), (10,34); a Ginko scene plays at the 2404 warp (8-9,28)) -> Cave
+Entrance room: walk to (511,-303), UP+LEFT -> (8,9) -> warp 2405 (30-31,35) from (31,34) pushing DOWN -> first Reflecting Pool (scene) ->
+DOWN 300 frames then RIGHT -> (39,43) -> diagwalk legs 44,37 44,31 46,26 42,21 44,16 48,11 53,6 59,4 64,3 69,8 74,8 (avoid (52-53,42): warp
+2406 = the Pink Azas Secret Room) -> warp 2407 (75,8) (UP there) -> second Reflecting Pool (scene; state 26011) -> LEFT -> (83,17) ->
+diagwalk to (57,24) -> stairs 2800 (DOWN at that spot) -> **B2F** (area 1) at (7,70) (state 26168). Masks skipped.
+The hole in the floor at (31,10) (crates) drops the party to (33,27) on the same floor.
