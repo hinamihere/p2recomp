@@ -629,3 +629,12 @@ Owl, Red Eagle, Blue Swan.
 **All four Mt. Iwato masks (flags 481-484) in state 34290** (B2F Blue Swan room). Scripts: build/scratch/down.sh (B1F Pink Azas room ->
 stairs), build/scratch/b2f.sh <B1F-stairs-slot> (B2F arrival -> secret strips -> 240c front (15,7)), build/scratch/swan.sh (240c pool room ->
 Blue Swan box).
+**Chapter 3 finished (2026-10-17):** B2F stairs 2808 (18-21,40) (front (19,39), stick DOWN) -> B3F (19,45) -> west corridor legs 13,40
+10,38 7,35 3,30 2,24 4,18 13,15 15,10 8,8 5,9 (FPS 20; the 0x0003 tiles slow walking, 0x0001 = damage floor; the B3F section reached from
+B2F 2804 is cut off from the north stairs by an impassable pinch at (17-18,10)) -> stairs 2808 (4-7,10), DOWN -> **B4F** (area 3) (4,68)
+-> diagwalk 6,25 6,17 -> warp 2404 (6-7,16), UP -> final Reflecting Pool (Shadow Maya reveal) -> battle (layout A table 0x094AB290,
+Shadow Maya 2582 HP; state 38029) -> tools/bosswin.py -> 38100 -> Prime Persona scenes (the level-up screen needs RIGHT x9 + Cross per
+character) -> robot army news -> free control in the Alaya Shrine Courtyard (state 38134). Next: Mt. Katatsumuri (chapter 4).
+From now on (user, 2026-10-17): story only, skip every optional thing, cheat freely.
+Teleport research (unfinished): the dungeon position shows up as floats at 0x08C25228/0x08C25230 (x, z; cell = (pos+256)/256) and as
+ints at 0x08CE7A54/0x08CE7A5C (x, -z), but both are per-frame copies - poking them (even held) does not move the party.
