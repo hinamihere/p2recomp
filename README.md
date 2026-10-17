@@ -563,3 +563,6 @@ The museum has a **time limit** (7:56 on entering 2F): the countdown is an int32
 Museum kids: the `0x1002` markers are fire walls (Cross on them sets 1682, a message only). The children are in the exhibition rooms behind the
 `C8nn` doors (rescue scenes = event scripts 072-076, flags 319-322/333/334; script 067 = the teacher/evacuation setup, 071 = broken elevator,
 077 = the blimp escape). 2F south-west doors (6-7,34), (14-15,34), (22-23,34).
+Museum 2F east: the south-east corridor is cut off (wall at col 33, fire at (43-46,31)); the Catwalk Anteroom is the east door `C80E` (47,22-23),
+from (46,22) push LEFT (+col) -> script 068; choice at the 26th Cross: DOWN + Cross = "Leave this to Maya" (flag 331, needed for Maya's Prime
+Persona); then the rope rescue and a flashback (flags 332, 490; state 19120).
