@@ -518,3 +518,4 @@ Guide order (almarsguides chapter 2): Maya on 3F south-east, Ginko on 1F south (
 then the elevator to 5F and Eikichi in the Women's Bathroom -> Ixquic + Belphegor (end of chapter 2). Optional rumor spreading skipped.
 Smile Hirasaka 3F: Maya is in the Men's Restroom on the south-east (cell (65,28) marker `2C00`); route (6,24) -> (46,33) -> (66,33) -> (65,29),
 then LEFT:4 + Cross (flags 312, 1681; state 14011). Use route.sh with intermediate goals: cellwalk alone gets stuck on the 3F pillars.
+Ginko: 3F west stairs (5,20-21) -> 2F (6,25) -> 2F (5,20-21) -> 1F (6,25) -> walk to (7,37), RIGHT:14 (south) + Cross -> flag 314 (state 14430).
