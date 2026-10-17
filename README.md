@@ -494,3 +494,12 @@ Guide note (almarsguides chapter 2): Ginko leaves the party for the next two dun
 After Giga Macho: the City Map gains **Aoba** (between Yumezaki and Kounan; tools/travel.sh district indices: 0 Rengedai, 1 Hirasaka, 2 Yumezaki,
 3 Aoba, 4 Kounan, 5 Theater from now on). Aoba town map node 12 = Aoba Park (Outdoor Concert Hall label), dungeon file **F0104** (area 0 30x26
 tiles, area 1 30x33); entering lands at (12,44); the `0x2400/01` cells at (40-41,10) move the party within area 0 to (20,12) ("South Side").
+**Aoba Park -> Concert Hall -> Prince Taurus (2026-10-17):** Aoba Park (F0104) area 0 exit = mapper cell (8,-24) LEFT (raw x~2856 z~-7900, the
+mapper map uses AXES 1,0,0,1 here) -> area 1 (41,53); the mapper route then cellwalk to (34,4) and LEFT = Trish's Spring (`2402`); door `2403`
+(50-51,8) from (50,7) pushing +row = Concert Hall Rear Entrance (script 031): staff C at room (1263,-55), from (1246,-149) face UP, Cross x7, the
+badge offer "Yes" (10,000 yen) -> employee badges (flag 288). UP + Cross at the back door -> Outdoor Concert Hall (F0105, one 46x30 corridor
+ring): south-west door `C803` (6-7,20) from (6,19) = stage -> scripts 032/033; on the stage walk to (1030,-1250) and talk to Eikichi with
+DOWN+RIGHT, first option "wait and see" (flag 292); the concert and Prince Taurus scene follow, then the boss fight. **Battle table at 0x094AB290
+again** (tools/bosswin.py now checks it first; poke at the Tactics menu, ~400 vblanks after the battle intro); party Lv15 after the win (state 13321
+= stage after the fight, flag 295 = escape timer phase).
+tools/bosswin.py: HP cheat + Auto + level-up distribution in one go.
