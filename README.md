@@ -522,3 +522,7 @@ Ginko: 3F west stairs (5,20-21) -> 2F (6,25) -> 2F (5,20-21) -> 1F (6,25) -> wal
 Yukino: B1F is a separate file **F0106** (35x17 tiles). The elevator (2x2 marker `0xA40n` at (32-33,8-9) on every floor, stand at (32,10), LEFT +
 Cross on 1F) offers 4F / 2F / 1F / B1F; DOWN + Cross = B1F. Yukino = B1F marker `2C00` at (67,26) in the east wing (reach it through the north
 passage, row 4-8).
+Smile Hirasaka topology: the elevator stops at 4F / 2F / 1F / B1F (not 3F). On 2F, 1F and B1F the north-east block (stairs `2804`/`2806` at
+(58-59,5)/(62-63,5)) is walled off from the elevator side; B1F's way east is locked double doors ("Storage", (49,4)). Only 3F's north-east area
+is open to the rest of the floor, so the B1F east wing (Yukino) is reached through the 3F north-east stairs: 2F west stairs (5,24-25) up -> 3F,
+walk to (62,7), then down the north-east stair chain.
