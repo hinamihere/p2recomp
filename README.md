@@ -491,3 +491,6 @@ UP + Cross from 3F = 4F. 4F-5F are a separate dungeon file **F0103** (area 0 = 4
 `P2_MAPPER_FLOORSAVE` writes a savestate the first time it reaches a floor); on 5F walk to (15,6) (`P2_CELLWALK_EDGES_SOLID=1` cellwalk) and push LEFT
 into door `C802` = FM Live Studio -> script 030 (Muses on Meteor Masa's radio show, Ginji Sasaki), flags 286 + 287 (state 12921).
 Guide note (almarsguides chapter 2): Ginko leaves the party for the next two dungeons after this scene.
+After Giga Macho: the City Map gains **Aoba** (between Yumezaki and Kounan; tools/travel.sh district indices: 0 Rengedai, 1 Hirasaka, 2 Yumezaki,
+3 Aoba, 4 Kounan, 5 Theater from now on). Aoba town map node 12 = Aoba Park (Outdoor Concert Hall label), dungeon file **F0104** (area 0 30x26
+tiles, area 1 30x33); entering lands at (12,44); the `0x2400/01` cells at (40-41,10) move the party within area 0 to (20,12) ("South Side").
