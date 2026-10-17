@@ -555,3 +555,6 @@ tag byte 6 = 01 here, tools/roomscript.py now matches it) first runs the staffer
 GOLD 3F Men's Staff Room = door at (34-35,12), from (34,13) push DOWN; the man there runs off (flag 318) -> chase him back to the 1F Boxing Gym.
 GOLD done: from 1F (30,19) push DOWN into the gym door -> the runaway (Masked Circle member) scene, King Leo's next target note; control on the
 Yumezaki map (state 17791). Next: Aerospace Museum (Kounan).
+Aerospace Museum = Kounan node 15 (entry scene: Tadashi, King Leo sets fire). Dungeon file **F0109**: area 4 = entrance floor (25x17 tiles,
+stairs (12-13,3)), areas 0-2 = 2F-4F (39x24); `0x1002` layer-B markers = the trapped kids (guide: 2F one group, 3F two, 4F two; the floors open
+up as they are rescued). F0121 is resident as well (probably the roof / King Leo arena).
