@@ -484,3 +484,10 @@ After Mu: script 029 ends with "Let's head for Giga Macho" (Mami and Miho's live
 **F0102** (4 floors, 20x20 tiles; 1F stairs 2800 (26,2) -> 2F (34,2); floors 2-3 have stairs at (26,2-3) and (33,2-3); 4F has the door
 `C801` (18-23,33) and staff 2c00 (26,26)). The floors are store-shelf mazes: the shelves are props, not in layer C, so the cell walker cannot
 plan there; the probing mapper (`P2_MAPPER`, floor-aware) is used instead (analysis/maps/giga.txt).
+**Giga Macho cleared:** the 1F-3F stairs (F0102) only go up to 3F; the 3F up-stairs pocket (24,2) is a dead end (an invisible barrier before the
+"EVENT FLOOR 4" stairs) and the 3F east edge (38,2) is a closet ("You can't get in through here..."). The way up is the **elevator** = the 2x2
+layer-B marker `0xA40n` at (32-33,36-37) on every floor: walk to (32,35) (mapper route on 3F), DOWN + Cross opens "Go to 5F / 4F / 3F / 2F / 1F";
+UP + Cross from 3F = 4F. 4F-5F are a separate dungeon file **F0103** (area 0 = 4F, 1 = 5F); 4F stairs (33-34,2) -> 5F (34,2) (found by the mapper,
+`P2_MAPPER_FLOORSAVE` writes a savestate the first time it reaches a floor); on 5F walk to (15,6) (`P2_CELLWALK_EDGES_SOLID=1` cellwalk) and push LEFT
+into door `C802` = FM Live Studio -> script 030 (Muses on Meteor Masa's radio show, Ginji Sasaki), flags 286 + 287 (state 12921).
+Guide note (almarsguides chapter 2): Ginko leaves the party for the next two dungeons after this scene.
