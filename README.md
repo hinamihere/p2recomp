@@ -553,3 +553,5 @@ tag byte 6 = 01 here, tools/roomscript.py now matches it) first runs the staffer
 **F0108** (areas 0-2 = 1F-3F, 20x20 tiles) at 1F (30,19). Stairs: 1F (1,32-33) -> 2F; 2F (38,30-31) -> 3F (38,32-33); 3F doors CA03-CA06 at
 (26-27,12)/(34-35,12) and CC07 (8,34-35).
 GOLD 3F Men's Staff Room = door at (34-35,12), from (34,13) push DOWN; the man there runs off (flag 318) -> chase him back to the 1F Boxing Gym.
+GOLD done: from 1F (30,19) push DOWN into the gym door -> the runaway (Masked Circle member) scene, King Leo's next target note; control on the
+Yumezaki map (state 17791). Next: Aerospace Museum (Kounan).
