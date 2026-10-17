@@ -566,3 +566,6 @@ Museum kids: the `0x1002` markers are fire walls (Cross on them sets 1682, a mes
 Museum 2F east: the south-east corridor is cut off (wall at col 33, fire at (43-46,31)); the Catwalk Anteroom is the east door `C80E` (47,22-23),
 from (46,22) push LEFT (+col) -> script 068; choice at the 26th Cross: DOWN + Cross = "Leave this to Maya" (flag 331, needed for Maya's Prime
 Persona); then the rope rescue and a flashback (flags 332, 490; state 19120).
+Museum 2F -> 3F: the Catwalk Anteroom's far door DOA_1 (room x 11..50, z -1805..-1600) exits to 2F (46,34) in the south-east block, whose
+bottom stairs `2800` (36-37,46) go UP to 3F (40,45) (state 19455). tools/doorsweep.sh tries a list of doors on a floor and reports the story
+flags each one sets.
