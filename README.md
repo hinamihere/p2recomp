@@ -560,3 +560,6 @@ stairs (12-13,3)), areas 0-2 = 2F-4F (39x24); `0x1002` layer-B markers = the tra
 up as they are rescued). F0121 is resident as well (probably the roof / King Leo arena).
 The museum has a **time limit** (7:56 on entering 2F): the countdown is an int32 seconds counter at `0x08E36DFC`; for bot runs hold it with
 `P2_POKE_HOLD=1 P2_POKE=<vblank>,08e36dfc,x384` (900 s).
+Museum kids: the `0x1002` markers are fire walls (Cross on them sets 1682, a message only). The children are in the exhibition rooms behind the
+`C8nn` doors (rescue scenes = event scripts 072-076, flags 319-322/333/334; script 067 = the teacher/evacuation setup, 071 = broken elevator,
+077 = the blimp escape). 2F south-west doors (6-7,34), (14-15,34), (22-23,34).
