@@ -503,3 +503,10 @@ DOWN+RIGHT, first option "wait and see" (flag 292); the concert and Prince Tauru
 again** (tools/bosswin.py now checks it first; poke at the Tactics menu, ~400 vblanks after the battle intro); party Lv15 after the win (state 13321
 = stage after the fight, flag 295 = escape timer phase).
 tools/bosswin.py: HP cheat + Auto + level-up distribution in one go.
+Escape: after the fight (flag 295, King Leo's bomb timer), the stage room's EXIT quad is at x 408..465 z -561..-467 on the floor level (y -100):
+from the upper stage (y 300) walk +x (DOWN+RIGHT) down the stage stairs to the y 100 level (e.g. DOWN+RIGHT 40, DOWN 40, LEFT 60 from (990,-324)),
+then roomwalk to (436,-514) and press Cross without turning -> Backstage (EXIT quad x 5..60 z -404..-292, Cross) -> corridor (6,19). The riddle is
+in the dressing room behind door (34,9) (b_048 -> script 217 once 292 is set): locker ROCKER3 (x 692..744, z -280..-224): from (698,-254) face
+DOWN+LEFT (facing index 6 = +x here) and Cross -> "Obtained the Riddle!" (flag 304). Then the corridor's north-west door `C805` (3,2), push DOWN
+-> the park explodes (bomb timer cut-in), Lisa scene with a choice (Gently cheer her up / Slap her - first option taken), Yukino: "She's gonna
+meet us at Double Slash in Aoba" (state 13551).
