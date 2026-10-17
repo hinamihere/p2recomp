@@ -638,3 +638,11 @@ character) -> robot army news -> free control in the Alaya Shrine Courtyard (sta
 From now on (user, 2026-10-17): story only, skip every optional thing, cheat freely.
 Teleport research (unfinished): the dungeon position shows up as floats at 0x08C25228/0x08C25230 (x, z; cell = (pos+256)/256) and as
 ints at 0x08CE7A54/0x08CE7A5C (x, -z), but both are per-frame copies - poking them (even held) does not move the party.
+Chapter 4 guide (almarsguides): Mt. Katatsumuri (City Map entry 6, node 2 = Entrance): choose **"Bust right through."** (linear) -> fork:
+Goketsuji first (monks scene), then west to the Summit -> boss (party choice irrelevant) -> Yukki scene: **"You'd deny his last
+request...?"** (Durga, Anna survives) -> Caracol dungeon (Yukki leaves, Jun joins after).
+Mt. Katatsumuri Entrance (state 38205): "Bust right through." is the default choice (Cross) -> soldier battle with reinforcement waves
+(layout A table **0x0955F4A0**; bosswin's generic scan picks a wrong table at 0x090A6224 -> game over). **tools/wavewin.py** <slot> <out>
+<table>: holds the party at 999 HP and sets live enemies to 1 HP each 400-vblank chunk (battle 38218 -> won by chunk 1). bosswin now has
+`BOSSWIN_TABLE=<hex>` and pokes up to 10 enemy records. build/scratch/levelup.sh clears Level Up screens. Free control at the Entrance
+(state 38404).

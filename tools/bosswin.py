@@ -28,7 +28,9 @@ best = None
 # the battle table lives at 0x094AB290 (copy +0xB00) in every fight seen so far: party records (hp, hp, max hp, sp) then
 # enemy records with sp 0
 # (0x094EB2A0 in the King Leo fight on the airship)
-for KNOWN in (0x094AB290 - 0x08000000, 0x094EB2A0 - 0x08000000):
+# (0x0955F4A0 in the Mt. Katatsumuri soldier fight); BOSSWIN_TABLE=<hex> forces an address
+_forced = [int(os.environ['BOSSWIN_TABLE'], 16) - 0x08000000] if os.environ.get('BOSSWIN_TABLE') else []
+for KNOWN in _forced + [0x094AB290 - 0x08000000, 0x094EB2A0 - 0x08000000, 0x0955F4A0 - 0x08000000]:
     k = 0
     while k < 6 and 0 < rec(KNOWN + 176 * k)[0] <= rec(KNOWN + 176 * k)[2] <= 999 and rec(KNOWN + 176 * k)[3] > 0:
         k += 1
@@ -71,8 +73,8 @@ for base in (off, off + 0xB00):
             pokes.append(f'{0x08000000 + base + 176 * i + 4:x},x{rec(off + 176 * i)[3]:04x}03e7')
         else:
             pokes.append(f'{0x08000000 + base + 176 * i:x},x03e703e7')
-    for j in range(k, 8):
-        if rec(off + 176 * j)[0] > 0:
+    for j in range(k, k + 10):  # up to 10 enemies (Mt. Katatsumuri soldier waves)
+        if rec(off + 176 * j)[0] > 0 or rec(off + 176 * j)[2] > 0:
             pokes.append(f'{0x08000000 + base + 176 * j:x},x00010001')
 env = dict(os.environ, P2_EXE=EXE, P2_NO_ENCOUNTERS='1', P2_POKE=f'{vblank + 1},' + ','.join(pokes))
 inp = [f'{v}=TRIANGLE:4,{v + 30}=CROSS:4' for v in range(10, 1800, 60)]
