@@ -48,7 +48,7 @@ def quads(R):
     (label index, facing 0..255, 01 03 00 05 00 xx); points are i16 (x, y, z)."""
     import re
     out = []
-    for m in re.finditer(rb'[\x00-\x3f].\x01\x03\x00\x05\x00.', R[0x1000000:]):
+    for m in re.finditer(rb'[\x00-\x3f].\x01\x03\x00\x05[\x00-\x03].', R[0x1000000:]):
         a = 0x1000000 + m.start()
         ptrs = struct.unpack_from('<4I', R, a - 16)
         if all(0x08800000 <= p < 0x0A000000 for p in ptrs):

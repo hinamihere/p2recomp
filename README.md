@@ -548,3 +548,7 @@ riddle: **"El Dorado"** ("the sign of water that presides over death and rebirth
 ## Chapter 3 (guide order, almarsguides): GOLD (Yumezaki node 23; 3F Men's Staff Room = transmitter + riddle, then chase the man to the 1F
 Gold Boxing Gym) -> Aerospace Museum (Kounan; kids on 2F-4F, choice "Leave this to Maya", boss King Leo on the roof) -> Kuchisake-Onna rumor (old
 man near Mt. Iwato) -> Mt. Iwato (Rengedai, north of Alaya Shrine; masks on B1F/B2F; boss Shadow Maya, Prime Persona choices) -> Mt. Katatsumuri.
+GOLD (Yumezaki node 23): choice "Yeah, let's check it out", Ulala scene, control in the GOLD Boxing Gym room. Its exit quad (x 200..400, z -1000..-930;
+tag byte 6 = 01 here, tools/roomscript.py now matches it) first runs the staffer's evacuation line (flag 508), then warps to the dungeon
+**F0108** (areas 0-2 = 1F-3F, 20x20 tiles) at 1F (30,19). Stairs: 1F (1,32-33) -> 2F; 2F (38,30-31) -> 3F (38,32-33); 3F doors CA03-CA06 at
+(26-27,12)/(34-35,12) and CC07 (8,34-35).
