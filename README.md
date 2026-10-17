@@ -608,3 +608,14 @@ DOWN 300 frames then RIGHT -> (39,43) -> diagwalk legs 44,37 44,31 46,26 42,21 4
 2406 = the Pink Azas Secret Room) -> warp 2407 (75,8) (UP there) -> second Reflecting Pool (scene; state 26011) -> LEFT -> (83,17) ->
 diagwalk to (57,24) -> stairs 2800 (DOWN at that spot) -> **B2F** (area 1) at (7,70) (state 26168). Masks skipped.
 The hole in the floor at (31,10) (crates) drops the party to (33,27) on the same floor.
+**Mt. Iwato B2F (area 1):** arrival (7,70) from the B1F stairs; the room's way out is north to (13,65); the secret passage east is the
+e004/e006 strip rows 66-67 (cols 14-33): from (13,65) push stick-UP (= south here) 17 frames to stand between rows 66/67, then hold
+stick-LEFT (= east) -> (36,66) (state 27201). Second secret passage = the e005/e007 strip cols 34-35 rows 38-47: from (35,49) nudge RIGHT
+(= west) 8 frames, hold DOWN (= north) -> (35,33) (state 27331). Pits = layer-B 0x0005 (2x2, the magenta X marks on the in-game map; falling
+lands on B3F): tools/diagwalk.py treats them as solid, `P2_DIAG_PITMARGIN=1` keeps a cell away, and steps that drift next to a pit are
+rejected (reload). Stairs 2804 (42-45,27) -> B3F (42,17) (bypasses the pit room); the guide's B3F stairs are 2808 (18-21,40).
+Masks (user-provided auto-map screenshots): secret rooms are the one-sided 0x24 warps - B1F 2406 (53,42-43) Pink Azas, 2408 (86-87,37) /
+2409 (66-67,28) Yellow Owl / Red Eagle, B2F 240d (6-7,43) Blue Swan, B3F (35,42-43) empty. **Blue Swan:** (35,33) -> legs 37,27 33,26
+32,20 29,15 24,13 21,8 16,6 -> (15,7), RIGHT (= west) into warp 240c (14,6-7) = Reflecting Pool (scene) -> DOWN 300 then RIGHT -> (6,15)
+-> diagwalk (6,42) -> warp 240d -> Secret Room, box quad x 449..550 z -371..-313: roomwalk to (472,-410), DOWN+LEFT + Cross -> "Obtained
+the Blue Swan Mask" (flag 484; state 28690).

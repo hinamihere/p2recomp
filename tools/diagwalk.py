@@ -22,11 +22,18 @@ ux, uy, rx, ry = map(int, os.environ.get('P2_DIAG_AXES', '0,-1,1,0').split(','))
 env = dict(os.environ, P2_EXE=os.environ.get('P2_EXE', os.path.join(ROOT, 'build', 'dev', 'p2.exe')), P2_NO_ENCOUNTERS='1')
 
 
-def free(c, r):
+# P2_DIAG_PITMARGIN=1: also keep one cell away from pits (the walker overshoots by about a cell)
+PIT = {(c, r) for r in range(H) for c in range(W) if B[r * W + c] == 0x0005}
+NEAR = {(c + i, r + j) for c, r in PIT for i in (-1, 0, 1) for j in (-1, 0, 1)} if os.environ.get('P2_DIAG_PITMARGIN') == '1' else set()
+
+
+def free(c, r, use_e=True):
     if not (0 <= c < W and 0 <= r < H): return False
     b = B[r * W + c]
     if (c, r) == goal: return True
-    return b != 0x8000 and b >> 8 != 0x24 and C[r * W + c] not in (0x3b, 0x3d)
+    if not use_e and b >> 12 == 0xE: return False
+    if (c, r) in NEAR: return False
+    return b not in (0x8000, 0x0005) and b >> 8 != 0x24 and C[r * W + c] not in (0x3b, 0x3d)  # 0x0005 = pit (B2F)
 
 
 def cell(s):
@@ -38,6 +45,10 @@ blocked = set()
 
 
 def plan(a):
+    return plan1(a, False) or plan1(a, True)  # plain floor first, the diagonal half-cells only when needed
+
+
+def plan1(a, use_e):
     prev = {a: None}; q = collections.deque([a])
     while q:
         c = q.popleft()
@@ -46,7 +57,7 @@ def plan(a):
             for dr in (-1, 0, 1):
                 if dc == dr == 0: continue
                 n = (c[0] + dc, c[1] + dr)
-                if n in prev or not free(*n) or (c, n) in blocked: continue
+                if n in prev or not free(*n, use_e) or (c, n) in blocked: continue
                 prev[n] = c; q.append(n)
     if goal not in prev: return None
     p = []; c = goal
@@ -79,6 +90,7 @@ def calib(s):
     if rt == (0, 0) and up != (0, 0): rt = (-up[1], up[0])
     up = (sg(up[0]), 0) if abs(up[0]) >= abs(up[1]) else (0, sg(up[1]))
     rt = (sg(rt[0]), 0) if abs(rt[0]) >= abs(rt[1]) else (0, sg(rt[1]))
+    if up[0] * rt[1] - up[1] * rt[0] == 0: return (ux, uy, rx, ry)  # degenerate probe (pushed into a corner): keep the old axes
     return up + rt
 
 
@@ -89,6 +101,7 @@ for it in range(400):
     p = plan(cur)
     if not p: print('no route from', cur); break
     step = (p[1][0] - cur[0], p[1][1] - cur[1])
+    if step not in names: step = (step[0], 0) if (step[0], 0) in names else (0, step[1])
     subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'drive.py'), str(slot), str(out), str(fps + 20),
                     f'5={names[step]}:{fps}'], env=env, cwd=ROOT, capture_output=True)
     new, nf = cell(out)
@@ -98,5 +111,11 @@ for it in range(400):
         if a2 != (ux, uy, rx, ry) and a2[:2] != (0, 0) and a2[2:] != (0, 0):
             ux, uy, rx, ry = a2; names = make_names(); print('recalibrated', a2); continue
         blocked.add((cur, p[1])); print('blocked', cur, '->', p[1], names[step]); continue
+    if new != p[1]:
+        a2 = calib(slot)  # moved somewhere else: the camera turned; probe from the old spot
+        if (new in NEAR or new in PIT) or a2 != (ux, uy, rx, ry):
+            if a2 != (ux, uy, rx, ry) and a2[:2] != (0, 0) and a2[2:] != (0, 0):
+                ux, uy, rx, ry = a2; names = make_names(); print('recalibrated after drift', a2)
+            print('rejected step', cur, '->', new); continue  # keep the old slot
     slot, out = out, out + 1
 print('final slot', slot, cell(slot))
