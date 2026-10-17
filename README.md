@@ -569,3 +569,6 @@ Persona); then the rope rescue and a flashback (flags 332, 490; state 19120).
 Museum 2F -> 3F: the Catwalk Anteroom's far door DOA_1 (room x 11..50, z -1805..-1600) exits to 2F (46,34) in the south-east block, whose
 bottom stairs `2800` (36-37,46) go UP to 3F (40,45) (state 19455). tools/doorsweep.sh tries a list of doors on a floor and reports the story
 flags each one sets.
+Guide (almarsguides chapter 3, user-provided link): museum kids 2F SW, 3F SE + SW, 4F SW + one more (a kid stuck in an elevator scene on 4F,
+demons appear after it); then the roof (King Leo, weak to water). Mt. Iwato map images on that page: Pink Azas / Yellow Owl / Red Eagle / Blue Swan
+mask locations and the B2F pit-fall room (".../AlmarsImages/Retro/Walkthroughs/PSP/Persona2InnocentSin/FullPlaythrough/Chapter3/*.png").
