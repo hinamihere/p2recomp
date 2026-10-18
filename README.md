@@ -702,3 +702,9 @@ side -> (23,61)) -> north stairs 2814 (48,18), entered from (48,17) pushing sout
 0xC80C (48,49) Relief Hall (fight; EXIT2 -> (51,61)) -> steer.py to (34,17) (west, north through the 0x44xx area, east; Jun's
 "impostor ahead" line blocks movement) -> door 0xC80E = Leo Room: Shadow Tatsuya 3590 HP (table 0x094EB2A0) -> Fire Skull -> Aoba map
 (state 83670). **All four Zodiac Temples done -> end of chapter 4.** Next: chapter 5 (the walkthrough's next page).
+**Chapter 5 route (walkthrough pasted by the user, 2026-10-18):** Rengedai -> Seven Sisters High -> Courtyard (across from the entrance):
+inspect the Narurato Stone, "Yes" -> Silver River (hovercraft, on rails): **Straight, Right, Left** -> Xibalba (trap question: either).
+Xibalba is linear, each floor split by a small party-talk room. B5F: Chickchan Hall (Velvet Room/Trish's Spring), Terminal (teleporter
+to 7 Sisters 1-C) - skip, keep going. B6F: Manik' Hall choice: **agree with Maya** = shortest B7F/B8F. B8F Lamat Hall: Longinus 1-4. Then
+Muluk' Hall: Metal Daddy. Lift to B9F, Ok Hall: Metal Mama (Jun absent, reflects magic). Cryonics Room: 5x Bolontiku. North -> Heart of
+Xibalba: Fuhrer, then Great Father (head ~13000 HP + parts ~5000). Ending: thank or hit Philemon (either).
