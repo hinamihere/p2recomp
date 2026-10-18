@@ -687,3 +687,12 @@ row 4, east (the 0x1004 cells are passable puddles) -> stairs 2807 (52,4) DOWN. 
 W row 57/58, N col 42, W row 50 to col 7, N to row 45, E to col 19, N to row 34, W into door 0xC801 (16,34) = Scorpio Room (Eikichi's
 "He's here" text stops movement: Cross it away). Shadow Eikichi 3711 HP (table 0x094AB290) -> Water Skull -> Yumezaki map (82669).
 Lesson: dchain/diagwalk crawled for 2.5 h on 3F; long held directions with a position check after each hold are far faster.
+**tools/steer.py** <chunk> <area> <from> <out> <c,r> [nibbles]: replaces diagwalk/dchain - BFS path, calibrates the stick, then one long
+hold per straight segment (~11 vblanks/cell), re-planning after each; rides sand escalators 0x340n only along their flow
+(n: 1 west, 2 north seen; 0 south / 3 east guessed). A whole floor takes minutes. Boss-near lines ("He's here...") block movement:
+Cross them away and rerun. build/scratch/win.sh <battle> <out> <table> = wavewin with the stored party HP held.
+Taurus Temple (Kounan node 16): 1F/2F = F0115, 3F = F0131. Camera rotated on 1F/2F (stick UP = east). Route: entrance (1,35) -> 1F
+stairs 2809 (48,64) -> 2F (44,63) -> door 0xC811 (54,48) Relief Hall (fight, table 0x094EB2A0; EXIT1 near side -> (55,36)) -> north of
+the 0x3401 escalators (rows 29-31) to stairs 2809 (60,36) -> 1F north part (65,35) -> stairs 2805 (52,10) -> 2F (51,6) -> stairs 2805
+(48,26) -> 3F (44,25) -> steer.py to (52,34) (west side, south, east along the bottom, north through the 0x44xx block) -> door 0xC805
+= Taurus Room: Shadow Ginko 3423 HP (table 0x094AB290) -> default answer -> Earth Skull -> Kounan map (83179).
