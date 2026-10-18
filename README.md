@@ -708,3 +708,13 @@ Xibalba is linear, each floor split by a small party-talk room. B5F: Chickchan H
 to 7 Sisters 1-C) - skip, keep going. B6F: Manik' Hall choice: **agree with Maya** = shortest B7F/B8F. B8F Lamat Hall: Longinus 1-4. Then
 Muluk' Hall: Metal Daddy. Lift to B9F, Ok Hall: Metal Mama (Jun absent, reflects magic). Cryonics Room: 5x Bolontiku. North -> Heart of
 Xibalba: Fuhrer, then Great Father (head ~13000 HP + parts ~5000). Ending: thank or hit Philemon (either).
+**GAME COMPLETED (2026-10-18).** Chapter 5: Rengedai node 19 (Seven Sisters High) -> Entrance Hall -> north doors (42,22) -> Courtyard ->
+the pillar of light is reached with DOWN+LEFT 120 from (1170,-837), Cross, Yes. Silver River (scripted battles happen despite
+P2_NO_ENCOUNTERS; table 0x095042C0): menus "Go straight." (2nd), "Right." (2nd), "Head left." (1st). Xibalba = F0118 (B1F-B6F,
+areas 0-5) + F0125 (B7F-B9F, Maya route; areas 0-2). Every floor: arrival region -> talk-room door pair -> far side -> lift (lifts are
+0x2800 cells: hold toward them for only ~70 vblanks - longer holds ride straight back). Many talk rooms have swapped exits: read the
+0x51 targets. Laser barriers are 0xE0xx cells: pass extra=1,4 to steer.py so it treats them as walls. B6F Manik' Hall: menu Jun/Eikichi/
+Maya/Ginko - DOWN x2 for Maya. B8F: Lamat Hall door 0xC805 (52,28) Longinus 1-4; Muluk' Hall door 0xC804 (16,41) Metal Daddy; lift
+(18,16) via the north corridor. B9F: Ok Hall 0xC802 (14,34) Metal Mama (party 4: wavewin party=4); Cryonics 0xC803 (50,47) 5x
+Bolontiku 2200 HP; Heart of Xibalba 0xC804 (46,7): Fuhrer 7792 HP, then Great Father (head 13308 + 4x 5000). All with
+build/scratch/win.sh. build/scratch/page.sh = Cross pager that stops at a battle table. Ending + credits -> Climax Theater (state 85600).
