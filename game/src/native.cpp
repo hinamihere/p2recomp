@@ -5,6 +5,7 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <random>
 #include <vector>
 
@@ -104,22 +105,49 @@ bool compare_ram(u32 addr, const u8 *want, const u8 *got, size_t size, u32 dead_
 }
 
 // Runs original and native on identical state and compares them. Leaves `c` and RAM in the original's
-// state on a mismatch, otherwise in the native's (identical) state.
+// state on a mismatch, otherwise in the native's (identical) state. With `invalid` set (the fuzzer), an input on which the
+// original itself faults (guest memory access outside RAM) is not a test: RAM and `c` are restored, *invalid becomes true
+// and the call counts as passed. A replacement that faults where the original did not is a mismatch.
 bool verify_call(Runtime &r, AllegrexContext &c, u32 addr, void (*native)(Runtime &, AllegrexContext &),
-                 void (*original)(Runtime &, AllegrexContext &)) {
+                 void (*original)(Runtime &, AllegrexContext &), bool *invalid = nullptr) {
     const size_t size = r.memory().size();
     u8 *ram = r.memory().raw_pointer(kRamBase, size);
     g_before.assign(ram, ram + size);
     const AllegrexContext start = c;
 
-    const bool completed = run_to_sentinel(r, c, original);
+    bool completed = false;
+    if (invalid != nullptr) {
+        *invalid = false;
+        try {
+            completed = run_to_sentinel(r, c, original);
+        } catch (const std::runtime_error &) {
+            std::memcpy(ram, g_before.data(), size);
+            c = start;
+            *invalid = true;
+            return true;
+        }
+    } else {
+        completed = run_to_sentinel(r, c, original);
+    }
     const AllegrexContext original_result = c;
     g_after.assign(ram, ram + size);
     if (!completed) return false;
 
     std::memcpy(ram, g_before.data(), size);
     c = start;
-    native(r, c);
+    if (invalid != nullptr) {
+        try {
+            native(r, c);
+        } catch (const std::runtime_error &e) {
+            LOG_E("native", "%08x MISMATCH: the replacement faulted (%s) where the original did not", addr, e.what());
+            std::memcpy(ram, g_after.data(), size);
+            c = original_result;
+            c.gpr[31] = start.gpr[31];
+            return false;
+        }
+    } else {
+        native(r, c);
+    }
 
     bool ok = compare_state(addr, original_result, c);
     ok &= compare_ram(addr, g_after.data(), ram, size, start.gpr[29] - 0x2000u, start.gpr[29]);
@@ -222,6 +250,8 @@ void p2_native_slow(Runtime &r, AllegrexContext &c, std::uint32_t addr, void (*n
 
 namespace p2 {
 
+constexpr u32 kFuzzScratch = 0x09D00000u; // 64 KiB of random words that pointer arguments point into
+
 int native_fuzz(u64 iterations) {
     std::mt19937 rng(0x5EEDu);
     Runtime &r = rt();
@@ -241,19 +271,33 @@ int native_fuzz(u64 iterations) {
     for (const auto &entry : registry()) {
         if (!only.empty() && std::find(only.begin(), only.end(), entry.addr) == only.end()) continue;
         ++fuzzed;
-        u64 bad = 0;
+        u64 bad = 0, skipped = 0;
         for (u64 i = 0; i < iterations; ++i) {
             AllegrexContext c{};
             c.gpr[29] = 0x09F00000u; // scratch stack inside RAM
             c.gpr[31] = 0x08804000u;
-            for (int a = 4; a < 12; ++a) c.gpr[a] = rng();
+            // Arguments: a mix of shapes so indices, counts, flags and pointers all get valid values often enough.
+            for (int a = 4; a < 12; ++a) {
+                const u32 kind = rng() % 8u;
+                c.gpr[a] = kind < 3u ? rng() % 64u                                   // small index / count
+                         : kind == 3u ? static_cast<u32>(-static_cast<s32>(rng() % 64u)) // small negative
+                         : kind < 6u ? kFuzzScratch + (rng() % 0x8000u & ~3u)          // pointer into scratch RAM
+                         : rng();                                                     // anything
+            }
+            for (u32 o = 0; o < 0x10000u; o += 4u) mem().store32(kFuzzScratch + o, rng() % 4u == 0u ? rng() % 64u : rng());
             native_fuzz_setup(entry.addr, rng, c);
             // The comparison functions return to the sentinel, so $ra only needs to survive.
-            if (!verify_call(r, c, entry.addr, entry.native, entry.original)) ++bad;
+            bool invalid = false;
+            if (!verify_call(r, c, entry.addr, entry.native, entry.original, &invalid)) ++bad;
+            skipped += invalid;
         }
-        LOG_I("native", "fuzz %08x: %llu iterations, %llu mismatches", entry.addr,
-              static_cast<unsigned long long>(iterations), static_cast<unsigned long long>(bad));
-        failures += bad != 0u;
+        const u64 valid = iterations - skipped;
+        const bool too_few = valid * 4u < iterations; // less than a quarter of the inputs were usable
+        LOG_I("native", "fuzz %08x: %llu iterations, %llu valid, %llu mismatches%s", entry.addr,
+              static_cast<unsigned long long>(iterations), static_cast<unsigned long long>(valid),
+              static_cast<unsigned long long>(bad),
+              too_few ? " - TOO FEW VALID INPUTS: add a case for this function to native_fuzz_setup (native_funcs.cpp)" : "");
+        failures += bad != 0u || too_few;
     }
     LOG_I("native", "fuzz done: %zu functions, %d with mismatches", fuzzed, failures);
     return failures;
