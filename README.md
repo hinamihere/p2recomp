@@ -66,6 +66,11 @@ within the stick direction's window, with the map graph structs documented in `n
 dumps the town-map graph (nodes, edges, angles) from a savestate; `tools/showfn.py` prints a function's disassembly
 together with the relocated constants from the generated C++.
 
+## Decomp work and its CI
+
+See `docs/decomp/README.md` (function list, work packets) and `docs/decomp/ci.md` (the ~1 minute check: differential
+fuzz plus deterministic savestate regression, `P2_DETERMINISTIC`, `tools/regress.py`, `tools/ci_check.sh`).
+
 ## Layout
 
 | Path | What |
