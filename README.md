@@ -655,3 +655,21 @@ area 3 (22-23,3) -> Summit: Longinus #13 solo fight. Its HP lives in the persist
 +2), not only in the battle table (0x098ADA10, enemy +176): hold both with P2_POKE_HOLD (state 48161 -> won 48300, Lv 28). Yukki scene:
 "You'd deny his last request...?" is the default (Cross) -> Durga (state 48370). Next: Caracol.
 Disk: ~36 MB per state, ~1500 states per dungeon -> prune often (linear.py does it).
+**Route ahead (from a walkthrough the user pasted, 2026-10-18):** Caracol = F0112 (areas 0-2 in chunk 0; more floors in other areas/files).
+B2F: moving-floor puzzle. B3F: 6 teleporters in the north, take the MIDDLE one on the RIGHT side. B4F: Longinus boss + Anna scene (Yukki
+leaves). B6F "Rings of Time": Joker (party of 4) then Angel Joker, two fights in a row. Then Philemon (ultimate Personas for collected masks)
+-> Alaya Shrine, Rengedai. Then the four Zodiac Temples in any order, each must be finished once started (Aquarius @Aquarius, Scorpio @Yumezaki,
+Taurus @Kounan, Leo @Aoba). Aquarius: pitfalls on 2F, Longinus group on 3F -> Wind Skull. Scorpio: 1F N stairs -> 2F -> Relief Hall -> NE stairs
+-> 3F, Scorpio Room SW of arrival; Shadow Eikichi -> Water Skull. Taurus: sand escalators; 3F go W,S,E,N around to the room S of the stairs;
+Shadow Ginko (any answer) -> Earth Skull. Leo: 1F NW stairs, 2F after the Relief Hall N stairs (3F starts at Trish's Spring), S Relief Hall,
+then far W, far N, far E -> Leo Room; Shadow Tatsuya -> Fire Skull. Then Chapter 5.
+**Caracol done (2026-10-18):** B1F-B3F = F0112 (areas 0-2), B4F-B6F = F0127 (= F0134). Notes: B2F conveyors (0x34xx cells, area 1)
+were cleared in the state's RAM copy of the map (chunk 0 lives at 0x09700910; zero the cells -> plain floor); the B2F stairs (14,41)
+pocket is reached through door 0xC804 (4,29) -> Stella Hall (soldier wave fight; table 0x098ADA10) -> door (4,42). Persistent party HP
+records: 0x08E68608 + 0x54*i (u16 hp, u16 max hp); a member at 1 HP stays at 1 HP in the next battle, so pass them to
+tools/wavewin.py via WAVE_EXTRA_POKES. B3F: middle-right teleporter 0x3809 (36,10) -> pocket -> centre teleporter 0x3808 (20,6) ->
+south part -> stairs (18-23,72). B4F: door (16,64) -> Central Bridge room: 3x Longinus (table 0x09557E70) -> Anna scene; stairs
+(10,20-25). B5F: Stella Halls behind doors 0xC80C (36,20)->(37,7) and 0xC80D (16,54)->(17,40); in the second one the far exit
+returns to (16,55): use the near exit (EXIT2, z -40). Stairs (40-45,45). B6F: route around the outer ring avoiding the arrival
+stairs (50-55,34), round room entered from (18,56), north door (32,38) = Rings of Time. Joker (table 0x094AB290, party 4) then
+Angel Joker (same table, party 5) both with wavewin. States: 67812 Joker, 68032 Angel Joker, 68107 after.

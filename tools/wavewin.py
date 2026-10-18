@@ -34,6 +34,7 @@ for c in range(maxc):
     # enemies: a one-shot poke needs a separate run; fold it into the first frames by holding only for 3 vblanks is not
     # possible with P2_POKE_HOLD, so write 1 HP every frame for this chunk - dead enemies (hp 0) are left alone
     pokes += [f'{table + o + 176 * i:x},x00010001' for o in (0, 0xB00) for i in alive]
+    pokes += [x for x in os.environ.get('WAVE_EXTRA_POKES', '').split(',') if x]  # e.g. persistent party HP
     inp = ','.join(f'{t}=TRIANGLE:4,{t + 30}=CROSS:4' for t in range(10, chunk, 80))
     subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'drive.py'), str(s), str(out), str(chunk), inp],
                    env=dict(env, P2_POKE=f'{v + 1},' + ','.join(pokes)), cwd=ROOT, capture_output=True)
