@@ -16,7 +16,7 @@ fi
 for d in extracted bin states memstick tools/third_party; do
     [ -e "$dst/$d" ] && continue
     mkdir -p "$(dirname "$dst/$d")"
-    cmd //c mklink /J "$(cygpath -w "$dst/$d")" "$(cygpath -w "$src_win/$d")" >/dev/null
+    powershell -NoProfile -Command "New-Item -ItemType Junction -Path '$(cygpath -w "$dst/$d")' -Target '$(cygpath -w "$src_win/$d")'" >/dev/null
 done
 cd "$dst"
 export PATH=/c/mingw64/bin:$PATH
