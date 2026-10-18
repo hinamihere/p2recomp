@@ -19,6 +19,19 @@ BUILD=${P2_CI_BUILD:-build/ci}
 start=$(date +%s)
 step() { echo "== [$(( $(date +%s) - start ))s] $*"; }
 
+# Result stamp, the last line of the output: paste it into the PR. The decomp-check workflow compares it with the PR's
+# head commit and the two replacement files, so a result from another commit (or none) is caught.
+# Only committed work is stamped.
+if [ -n "$(git status --porcelain -- game/src/native_funcs.cpp game/overrides.txt)" ]; then
+    echo "game/src/native_funcs.cpp or game/overrides.txt has uncommitted changes: commit first (only committed work is stamped)"
+    exit 2
+fi
+head=$(git rev-parse HEAD)
+blobs="funcs=$(git rev-parse --short=12 HEAD:game/src/native_funcs.cpp) overrides=$(git rev-parse --short=12 HEAD:game/overrides.txt)"
+result=FAIL fuzzed=none states=0
+stamp() { echo "p2-check: $result head=$head $blobs fuzzed=$fuzzed states=$states"; }
+trap stamp EXIT
+
 for need in bin/EBOOT.dec states/KEEP extracted/PSP_GAME; do
     [ -e "$need" ] || { echo "missing $need: run tools/ci_setup.sh (needs your own game data)"; exit 2; }
 done
@@ -37,6 +50,7 @@ export P2_EXE="$PWD/$BUILD/p2.exe"
 
 changed=$(python tools/ci_changed.py "$base")
 if [ -n "$changed" ]; then
+    fuzzed=$changed
     step "fuzzing changed replacements: $changed"
     set +e
     out=$(P2_NATIVE_FUZZ=200 P2_NATIVE_FUZZ_ONLY="$changed" "$P2_EXE" --headless 2>&1); status=$?
@@ -47,6 +61,9 @@ else
     step "no replacement changed; skipping the fuzzer"
 fi
 
-step "savestate regression (24 windows)"
-python tools/regress.py compare --limit "${P2_CI_STATES:-24}" --jobs "${P2_CI_JOBS:-6}"
+n=${P2_CI_STATES:-24}
+step "savestate regression ($n windows)"
+python tools/regress.py compare --limit "$n" --jobs "${P2_CI_JOBS:-6}"
+states="$n/$n"
+result=PASS
 step "PASS"
