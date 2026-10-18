@@ -696,3 +696,9 @@ stairs 2809 (48,64) -> 2F (44,63) -> door 0xC811 (54,48) Relief Hall (fight, tab
 the 0x3401 escalators (rows 29-31) to stairs 2809 (60,36) -> 1F north part (65,35) -> stairs 2805 (52,10) -> 2F (51,6) -> stairs 2805
 (48,26) -> 3F (44,25) -> steer.py to (52,34) (west side, south, east along the bottom, north through the 0x44xx block) -> door 0xC805
 = Taurus Room: Shadow Ginko 3423 HP (table 0x094AB290) -> default answer -> Earth Skull -> Kounan map (83179).
+Leo Temple (Aoba; not reachable by P2_MAPNAV: from the arrival hold UP 250 then RIGHT 300 -> "Leo Temple" IN): 1F/2F = F0113,
+3F = F0129. 1F: entrance (35,66) -> NW stairs 2800 (6,21). 2F (6,16) -> door 0xC816 (20,49) Relief Hall (fight 0x094EB2A0; EXIT2 far
+side -> (23,61)) -> north stairs 2814 (48,18), entered from (48,17) pushing south. 3F (44,16, Trish's Spring next to it) -> south door
+0xC80C (48,49) Relief Hall (fight; EXIT2 -> (51,61)) -> steer.py to (34,17) (west, north through the 0x44xx area, east; Jun's
+"impostor ahead" line blocks movement) -> door 0xC80E = Leo Room: Shadow Tatsuya 3590 HP (table 0x094EB2A0) -> Fire Skull -> Aoba map
+(state 83670). **All four Zodiac Temples done -> end of chapter 4.** Next: chapter 5 (the walkthrough's next page).
