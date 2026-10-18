@@ -27,6 +27,14 @@ and run checks only there. Start every task from an up-to-date `origin/master` o
 
 ## Decompiling a function
 
+0. In your workspace, start a fresh branch from the latest master before you change anything:
+
+   ```
+   git fetch origin
+   git switch -c decomp/<first-address> origin/master
+   ```
+
+   One branch and one PR per batch. Never commit to `master`.
 1. Pick a `todo` function from `docs/decomp/functions.csv`, or take the one you were given. Generate its packet with
    `.venv/Scripts/python tools/packet.py <ADDR>` (run it from the main checkout if your workspace has no `.venv`). Read
    `build/packets/<ADDR>.md` completely: it has the disassembly, callers, callees and the rules for the code.
@@ -50,6 +58,14 @@ and run checks only there. Start every task from an up-to-date `origin/master` o
    into the PR description where the template asks for it. It records the commit and the file hashes that were
    tested. Whenever you push a new commit, rerun the check and replace the line. The PR's check job compares it
    with the PR head and fails if it is missing, edited, from another commit or not a PASS.
+
+   ```
+   git push -u origin decomp/<first-address>
+   gh pr create --base master --title "Decompile <addresses>" --body-file pr.md
+   ```
+
+   `pr.md` follows `.github/pull_request_template.md`: the functions, the exact `p2-check:` line and notes. Write it
+   outside the repository, or delete it before committing; it must not be committed.
 
 Never weaken the check to make it pass: do not edit `tools/`, the workflow, the fuzzer (`game/src/native.cpp`) or the
 iteration counts. Adding a `native_fuzz_setup` case for your own function is expected. Weakening another function's
