@@ -15,7 +15,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV = os.path.join(ROOT, 'docs', 'decomp', 'functions.csv')
 
-RULES = """## Task
+RULES = r"""## Task
 
 Write a C++ replacement for this function that behaves **exactly** like the original: the same return value in v0/v1,
 the same writes to guest memory, the same calls to other guest functions with the same arguments in the same order.
@@ -37,9 +37,17 @@ How replacements are written (see the existing ones in `game/src/native_funcs.cp
   run their delay slot only when taken; a load right before a branch is visible in the delay slot; div by zero and
   overflowing shifts must behave as on MIPS (`u32` arithmetic, no UB).
 
-How it is checked (CI, docs/decomp/ci.md): 200 calls with random arguments and RAM, original vs yours on identical
+Fuzz inputs: the fuzzer calls the function with a mix of small numbers, small negatives, pointers into 64 KiB of
+random words and random words, on a RAM image right after boot. If the check says `TOO FEW VALID INPUTS`, or if the
+function reads globals or struct fields (which are mostly zero after boot), add a `case 0x{addr}u:` to
+`native_fuzz_setup` in `game/src/native_funcs.cpp`. In it, fill the globals and buffers the function reads with
+`fill(addr, bytes)` and point pointer arguments at `kScratch` buffers with plausible contents (counts in range, valid
+indices). The cases for `0x088FE140u` (pool), `0x089228B0u` (entity pool) and `0x0889E76Cu` (map graph) show how. A test
+that only ever sees zeroed globals proves little.
+
+How it is checked (docs/decomp/ci.md): 200 calls with random arguments and RAM, original vs yours on identical
 state (all registers and all RAM must match), then 24 savestate windows over the whole game, byte-identical.
-Run it yourself on the maintainer's machine: `bash tools/ci_check.sh origin/master`.
+Run it in your workspace after committing: `tools\check.cmd origin/master` (PowerShell/cmd) or `bash tools/ci_check.sh origin/master` (Git Bash).
 """
 
 
