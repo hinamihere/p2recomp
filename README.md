@@ -680,3 +680,10 @@ Relief Hall (soldier fight, table 0x094AB290; its exits EXIT1 z~-40 -> (19,10));
 Spring; 0xC802 (50,22) -> Relief Hall (fight, table 0x094EB2A0) -> (51,10); round the west side to 0xC804 (34,53) = Aquarius Room:
 3x Longinus 2500 HP (table 0x094AB290) -> Wind Skull -> Hirasaka map (state 78819). Relief Hall inscriptions need 3 Crosses to close.
 St caps at 99: build/scratch/levelup.sh now spreads points over all five stats.
+Scorpio Temple (Yumezaki; town-map node not reachable by P2_MAPNAV: go to node 20 Yumezaki Center, back out of its shop menu, hold LEFT
+-> "Scorpio Temple" IN): 1F/2F = F0114, 3F = F0130. 1F: stick RIGHT = north; stairs 2801 (60,17). 2F: corridor (65,27) -> row 25 west
+-> col 52 north -> col 45 south -> door 0xC81D (42,16) = Relief Hall (fight, table 0x094EB2A0; EXIT2 far side -> (30,17)) -> north to
+row 4, east (the 0x1004 cells are passable puddles) -> stairs 2807 (52,4) DOWN. 3F (normal axes): steer by hand - S along col 52,
+W row 57/58, N col 42, W row 50 to col 7, N to row 45, E to col 19, N to row 34, W into door 0xC801 (16,34) = Scorpio Room (Eikichi's
+"He's here" text stops movement: Cross it away). Shadow Eikichi 3711 HP (table 0x094AB290) -> Water Skull -> Yumezaki map (82669).
+Lesson: dchain/diagwalk crawled for 2.5 h on 3F; long held directions with a position check after each hold are far faster.
