@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "native.hpp"
 
 #include <cstdlib>
@@ -221,11 +222,25 @@ void p2_native_slow(Runtime &r, AllegrexContext &c, std::uint32_t addr, void (*n
 
 namespace p2 {
 
-void native_fuzz(u64 iterations) {
+int native_fuzz(u64 iterations) {
     std::mt19937 rng(0x5EEDu);
     Runtime &r = rt();
     int failures = 0;
+    // P2_NATIVE_FUZZ_ONLY=<hex addr>[,<hex addr>...]: fuzz only these replacements (CI fuzzes the ones a change touches;
+    // each iteration snapshots and compares all of RAM, about 10 ms).
+    std::vector<u32> only;
+    if (const char *e = std::getenv("P2_NATIVE_FUZZ_ONLY"))
+        for (const char *p = e; *p != 0;) {
+            char *end = nullptr;
+            const unsigned long v = std::strtoul(p, &end, 16);
+            if (end == p) break;
+            only.push_back(static_cast<u32>(v));
+            p = *end == ',' ? end + 1 : end;
+        }
+    size_t fuzzed = 0;
     for (const auto &entry : registry()) {
+        if (!only.empty() && std::find(only.begin(), only.end(), entry.addr) == only.end()) continue;
+        ++fuzzed;
         u64 bad = 0;
         for (u64 i = 0; i < iterations; ++i) {
             AllegrexContext c{};
@@ -240,7 +255,8 @@ void native_fuzz(u64 iterations) {
               static_cast<unsigned long long>(iterations), static_cast<unsigned long long>(bad));
         failures += bad != 0u;
     }
-    LOG_I("native", "fuzz done: %zu functions, %d with mismatches", registry().size(), failures);
+    LOG_I("native", "fuzz done: %zu functions, %d with mismatches", fuzzed, failures);
+    return failures;
 }
 
 } // namespace p2

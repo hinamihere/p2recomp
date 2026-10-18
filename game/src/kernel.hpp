@@ -193,6 +193,9 @@ public:
     static u64 now_us();
     // Fast-forward: while active, idle time is skipped instead of slept.
     bool turbo() const;
+    // Idle time is skipped instead of slept: in turbo, and always in deterministic mode (P2_DETERMINISTIC).
+    bool skip_idle() const;
+    static u64 deterministic_step();
     void set_turbo_until(u64 vblank) { turbo_until_ = vblank; }
     void set_turbo_key(bool held) { turbo_key_ = held; }
     // Advances the virtual clock so that now_us() >= target.
@@ -315,6 +318,7 @@ private:
     u64 next_deadline() const;
     void report_performance();
     static u64 time_offset_us_;
+    static u64 virtual_us_;
     static u64 turbo_until_;
     static bool turbo_key_;
     u64 idle_us_{};

@@ -1,0 +1,55 @@
+# Checks pull requests that add or change hand-written replacements for recompiled functions (the decomp work).
+#
+# gate   (GitHub-hosted, no game data): the PR may only touch game/src/native_funcs.cpp, game/overrides.txt and docs/decomp/.
+#        A PR that needs other files gets the `allow-infra` label from the maintainer.
+# check  (self-hosted runner on the maintainer's PC, which has the game data; see docs/decomp/ci.md): incremental build,
+#        differential fuzz of the changed replacements and the savestate regression - about a minute.
+#        For safety it never runs for pull requests from forks: this repository is public and the runner is a real PC.
+name: decomp-check
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: decomp-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Only replacement files changed
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'allow-infra')
+        run: |
+          base=${{ github.event.pull_request.base.sha }}
+          bad=$(git diff --name-only "$base"...HEAD | grep -vE '^(game/src/native_funcs\.cpp|game/overrides\.txt|docs/decomp/.*)$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::This PR touches files outside the replacement files:"; echo "$bad"
+            echo "Ask the maintainer for the allow-infra label if that is intended."
+            exit 1
+          fi
+      - name: Changed replacements
+        if: github.event_name == 'pull_request'
+        run: python3 tools/ci_changed.py ${{ github.event.pull_request.base.sha }} HEAD
+
+  check:
+    needs: gate
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, windows, p2]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: '"C:\Program Files\Git\bin\bash.exe" --noprofile --norc -e -o pipefail {0}'
+        working-directory: C:\p2r-ci
+    steps:
+      - name: Check out the PR into the CI checkout
+        run: |
+          git fetch -q origin master "${{ github.event.pull_request.head.sha || github.sha }}"
+          git checkout -q --force "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Build, fuzz, savestate regression
+        run: bash tools/ci_check.sh origin/master

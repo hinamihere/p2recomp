@@ -1428,7 +1428,7 @@ void DisplayGetVcount(AllegrexContext &c) {
     if (now_count == last) {
         if (++repeats >= 256u) {
             const u64 now = Kernel::now_us(), next = K.next_vblank_us();
-            if (K.turbo()) K.skip_time_to(next);
+            if (K.skip_idle()) K.skip_time_to(next);
             else if (next > now + 300u) {
                 std::this_thread::sleep_for(std::chrono::microseconds(std::min<u64>(next - now - 200u, 2000u)));
                 K.add_idle_us(Kernel::now_us() - now);

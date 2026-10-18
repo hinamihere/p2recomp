@@ -27,7 +27,7 @@ void native_report();
 
 // P2_NATIVE_FUZZ=<n>: before booting, run every replaced function n times on random arguments and
 // random RAM (shaped by native_fuzz_setup in native_funcs.cpp) against the original, then exit.
-void native_fuzz(u64 iterations);
+int native_fuzz(u64 iterations); // returns the number of replacements with mismatches
 void native_fuzz_setup(u32 address, std::mt19937 &rng, AllegrexContext &c);
 
 // ---- typed replacements ---------------------------------------------------------------------------------

@@ -45,13 +45,28 @@ u64 Kernel::time_offset_us_ = 0;
 u64 Kernel::turbo_until_ = 0;
 bool Kernel::turbo_key_ = false;
 
+u64 Kernel::virtual_us_ = 0;
+
+// P2_DETERMINISTIC=<us>: the guest clock no longer follows the host's wall clock. It advances by <us> (default 2) every 32
+// dispatches of guest code and jumps to the next event when every thread waits, so a run from a savestate with the same input
+// script produces the same RAM on every host and every run (tools/regress.py relies on this).
+u64 Kernel::deterministic_step() {
+    static const u64 step = [] {
+        const char *e = std::getenv("P2_DETERMINISTIC");
+        return e == nullptr ? 0ull : (std::strtoull(e, nullptr, 0) == 0ull ? 2ull : std::strtoull(e, nullptr, 0));
+    }();
+    return step;
+}
+
 u64 Kernel::now_us() {
+    if (deterministic_step() != 0u) return virtual_us_ + 1'000'000u + time_offset_us_;
     using namespace std::chrono;
     static const auto start = steady_clock::now();
     return static_cast<u64>(duration_cast<microseconds>(steady_clock::now() - start).count()) + 1'000'000u + time_offset_us_;
 }
 
 bool Kernel::turbo() const { return turbo_key_ || vcount_ < turbo_until_; }
+bool Kernel::skip_idle() const { return turbo() || deterministic_step() != 0u; }
 
 void Kernel::skip_time_to(u64 target) {
     const u64 now = now_us();
@@ -654,6 +669,7 @@ void Kernel::process_events(AllegrexContext &c) {
 void Kernel::on_dispatch(AllegrexContext &c) {
     if (savestate_service()) return;
     if ((++dispatch_counter_ & 31u) != 0u) return;
+    virtual_us_ += deterministic_step();
     process_events(c);
 }
 
@@ -665,7 +681,7 @@ void Kernel::idle(AllegrexContext &c) {
     const u64 now = now_us();
     const u64 next = next_deadline();
     if (next > now) {
-        if (turbo()) {
+        if (skip_idle()) {
             // Fast-forward: nothing to run until the next event, so jump the clock there.
             skip_time_to(next);
             return;

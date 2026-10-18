@@ -194,8 +194,7 @@ int run(int argc, char **argv) {
     readwatch_init();
     native_init();
     if (const char *fuzz = std::getenv("P2_NATIVE_FUZZ")) {
-        native_fuzz(std::strtoull(fuzz, nullptr, 10));
-        return 0;
+        return native_fuzz(std::strtoull(fuzz, nullptr, 10)) == 0 ? 0 : 4;
     }
     const bool profile = std::getenv("P2_PROFILE") != nullptr;
     if (profile) profiler_start();
