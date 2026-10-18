@@ -673,3 +673,10 @@ south part -> stairs (18-23,72). B4F: door (16,64) -> Central Bridge room: 3x Lo
 returns to (16,55): use the near exit (EXIT2, z -40). Stairs (40-45,45). B6F: route around the outer ring avoiding the arrival
 stairs (50-55,34), round room entered from (18,56), north door (32,38) = Rings of Time. Joker (table 0x094AB290, party 4) then
 Angel Joker (same table, party 5) both with wavewin. States: 67812 Joker, 68032 Angel Joker, 68107 after.
+**Zodiac Temples (chapter 4, 2026-10-18):** temples are new town-map nodes, not City Map districts (Aquarius = Hirasaka node 37; Scorpio
+Yumezaki, Taurus Kounan, Leo Aoba). Aquarius Temple: 1F/2F = F0116, 3F = F0132. The camera faces south on several floors (stick UP
+moves south): stairgo misses those stairs, push DOWN instead. 2F: pitfalls are cells 0x0005; door pair 0xC804 (18,22)<->(18,11) via a
+Relief Hall (soldier fight, table 0x094AB290; its exits EXIT1 z~-40 -> (19,10)); stairs 2802 (54,36) from (54,35). 3F: 0xC803 = Trish's
+Spring; 0xC802 (50,22) -> Relief Hall (fight, table 0x094EB2A0) -> (51,10); round the west side to 0xC804 (34,53) = Aquarius Room:
+3x Longinus 2500 HP (table 0x094AB290) -> Wind Skull -> Hirasaka map (state 78819). Relief Hall inscriptions need 3 Crosses to close.
+St caps at 99: build/scratch/levelup.sh now spreads points over all five stats.
